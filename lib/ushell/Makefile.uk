@@ -1,0 +1,3 @@
+$(eval $(call addlib_s,libushell,$(CONFIG_LIBUSHELL)))
+
+LIBUSHELL_SRCS-y += $(LIBUSHELL_BASE)/ushell.c
