@@ -153,7 +153,9 @@ config VIRTIO_9P
 
 config VIRTIO_CONSOLE
        bool "Virtio console device"
+       default y if LIBUKCONSOLEDEV
        default n
+       depends on LIBUKCONSOLEDEV
        imply VIRTIO_PCI if ARCH_X86_64
        select VIRTIO_BUS
        select LIBUKSGLIST

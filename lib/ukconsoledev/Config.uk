@@ -1,0 +1,6 @@
+menuconfig LIBUKCONSOLEDEV
+	bool "ukconsoledev: Console driver interface"
+	default n
+	select LIBNOLIBC if !HAVE_LIBC
+	select LIBUKDEBUG
+	select LIBUKALLOC
