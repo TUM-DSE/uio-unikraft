@@ -112,7 +112,7 @@ config VIRTIO_BUS
 menu "Virtio"
 config VIRTIO_PCI
        bool "Virtio PCI device support"
-       default y if (VIRTIO_NET || VIRTIO_9P || VIRTIO_BLK)
+       default y if (VIRTIO_NET || VIRTIO_9P || VIRTIO_BLK || VIRTIO_CONSOLE)
        default n
        depends on KVM_PCI
        select VIRTIO_BUS
@@ -150,6 +150,15 @@ config VIRTIO_9P
        select LIBUKSGLIST
        help
               Virtio 9P driver.
+
+config VIRTIO_CONSOLE
+       bool "Virtio console device"
+       default n
+       imply VIRTIO_PCI if ARCH_X86_64
+       select VIRTIO_BUS
+       select LIBUKSGLIST
+       help
+              Virtio console driver.
 endmenu
 
 config RTC_PL031
