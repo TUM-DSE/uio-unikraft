@@ -1,4 +1,5 @@
 #include <inttypes.h>
+#include <string.h>
 #include <unistd.h>
 #include <uk/alloc.h>
 #include <uk/essentials.h>
@@ -6,7 +7,7 @@
 #include <virtio/virtio_bus.h>
 #include <virtio/virtio_ids.h>
 #include <virtio/virtio_console.h>
-#include <uk/plat/spinlock.h>
+#include <uk/console.h>
 
 #define DRIVER_NAME "virtio-console"
 static struct uk_alloc *a;
@@ -175,7 +176,8 @@ out_status_fail:
 
 static int virtio_console_add_dev(struct virtio_dev *vdev)
 {
-	struct virtio_console_device *vcdev;
+	struct virtio_console_device *vcdev = NULL;
+	struct uk_console_device *uk_cdev = NULL;
 	int rc = 0;
 
 	UK_ASSERT(vdev != NULL);
@@ -190,13 +192,13 @@ static int virtio_console_add_dev(struct virtio_dev *vdev)
 	vcdev->rxq = uk_calloc(a, 1, sizeof(*vcdev->rxq));
 	if (!vcdev) {
 		rc = -ENOMEM;
-		goto out;
+		goto out_free;
 	}
 
 	vcdev->txq = uk_calloc(a, 1, sizeof(*vcdev->txq));
 	if (!vcdev) {
 		rc = -ENOMEM;
-		goto out;
+		goto out_free;
 	}
 
 	virtio_console_feature_set(vcdev);
@@ -208,10 +210,26 @@ static int virtio_console_add_dev(struct virtio_dev *vdev)
 	if (rc)
 		goto out_free;
 
+	uk_cdev = uk_calloc(a, 1, sizeof(*uk_cdev));
+	if (!uk_cdev) {
+		rc = -ENOMEM;
+		goto out_free;
+	}
+
+	strncpy(&uk_cdev->name[0], "virtio-console", sizeof(uk_cdev->name));
+	uk_cdev->ops.getc = NULL;
+	uk_cdev->ops.putc = NULL;
+	uk_console_register_device(uk_cdev);
+
 out:
 	return rc;
 out_free:
+	if (vcdev) {
+		uk_free(a, vcdev->rxq);
+		uk_free(a, vcdev->txq);
+	}
 	uk_free(a, vcdev);
+	uk_free(a, uk_cdev);
 	goto out;
 }
 
