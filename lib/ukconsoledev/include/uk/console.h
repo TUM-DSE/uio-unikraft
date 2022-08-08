@@ -5,8 +5,10 @@
 extern "C" {
 #endif
 
-typedef char (*uk_console_getc_t)();
-typedef void (*uk_console_putc_t)(char);
+struct uk_console_device;
+
+typedef char (*uk_console_getc_t)(struct uk_console_device *);
+typedef void (*uk_console_putc_t)(struct uk_console_device *, char);
 
 struct uk_console_device_ops {
 	uk_console_getc_t getc;

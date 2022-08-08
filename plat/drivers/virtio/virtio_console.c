@@ -24,7 +24,11 @@ struct virtio_console_device {
 	struct virtio_dev *vdev;
 	struct virtio_console_queue *rxq;
 	struct virtio_console_queue *txq;
+	struct uk_console_device uk_cdev;
 };
+
+#define to_virtiocdev(dev)                                                     \
+	__containerof(dev, struct virtio_console_device, uk_cdev)
 
 static int virtio_console_start(struct virtio_console_device *d)
 {
@@ -56,10 +60,11 @@ static int virtio_console_feature_negotiate(struct virtio_console_device *d)
 	return 0;
 }
 
+/* call back function when receiving an interrupt */
 static int virtio_console_recv(struct virtqueue *vq, void *priv)
 {
 	int handled = 1;
-	uk_pr_info(DRIVER_NAME ": recv\n");
+	uk_pr_debug(DRIVER_NAME ": recv\n");
 	return handled;
 }
 
@@ -138,6 +143,27 @@ static int virtio_console_rxq_enqueue(struct virtio_console_device *d)
 	return rc;
 }
 
+static int virtio_console_rxq_dequeue(struct virtio_console_device *d, char *c)
+{
+	int rc;
+	__u32 len;
+	char *buf[1];
+
+	rc = virtqueue_buffer_dequeue(d->rxq->vq, (void **)&buf, &len);
+	if (rc < 0) {
+		uk_pr_info("No data available in the queue\n");
+		return -1;
+	}
+
+	if (unlikely(len < 1)) {
+		uk_pr_err("Received invalid response size: %u\n", len);
+	}
+
+	*c = *buf[0];
+
+	return len;
+}
+
 static int virtio_console_configure(struct virtio_console_device *d)
 {
 	int rc = 0;
@@ -172,6 +198,37 @@ out:
 out_status_fail:
 	virtio_dev_status_update(d->vdev, VIRTIO_CONFIG_STATUS_FAIL);
 	goto out;
+}
+
+static int virtio_console_peak(struct virtio_console_device *cdev)
+{
+	return virtqueue_hasdata(cdev->rxq->vq);
+}
+
+static char virtio_console_getc(struct uk_console_device *uk_cdev)
+{
+	char c;
+	int rc = 0;
+	struct virtio_console_device *cdev = to_virtiocdev(uk_cdev);
+
+	while (!virtio_console_peak(cdev)) {
+		ukarch_spinwait();
+	}
+
+	rc = virtio_console_rxq_enqueue(cdev);
+	if (unlikely(rc != 0)) {
+		uk_pr_err(DRIVER_NAME
+			  ": Failed to add a buffer to receive queue\n");
+	}
+
+	virtio_console_rxq_dequeue(cdev, &c);
+
+	return c;
+}
+
+static void virtio_console_putc(struct uk_console_device *uk_cdev, char c)
+{
+	struct virtio_console_device *cdev = to_virtiocdev(uk_cdev);
 }
 
 static int virtio_console_add_dev(struct virtio_dev *vdev)
@@ -210,16 +267,11 @@ static int virtio_console_add_dev(struct virtio_dev *vdev)
 	if (rc)
 		goto out_free;
 
-	uk_cdev = uk_calloc(a, 1, sizeof(*uk_cdev));
-	if (!uk_cdev) {
-		rc = -ENOMEM;
-		goto out_free;
-	}
-
-	strncpy(&uk_cdev->name[0], "virtio-console", sizeof(uk_cdev->name));
-	uk_cdev->ops.getc = NULL;
-	uk_cdev->ops.putc = NULL;
-	uk_console_register_device(uk_cdev);
+	strncpy(&vcdev->uk_cdev.name[0], "virtio-console",
+		sizeof(vcdev->uk_cdev.name));
+	vcdev->uk_cdev.ops.getc = virtio_console_getc;
+	vcdev->uk_cdev.ops.putc = virtio_console_putc;
+	uk_console_register_device(&vcdev->uk_cdev);
 
 out:
 	return rc;

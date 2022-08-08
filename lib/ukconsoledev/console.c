@@ -1,4 +1,5 @@
 #include <stddef.h>
+#include <uk/assert.h>
 #include <uk/console.h>
 #include <uk/essentials.h>
 #include <uk/print.h>
@@ -15,10 +16,18 @@ void uk_console_register_device(struct uk_console_device *uk_cdev)
 	uk_pr_info("uk_console: registered: %s\n", dev->name);
 }
 
-void uk_console_putc(char ch) {}
+void uk_console_putc(char ch)
+{
+	UK_ASSERT(dev);
+	UK_ASSERT(dev->ops.putc);
+
+	dev->ops.putc(dev, ch);
+}
 
 char uk_console_getc()
 {
-	char a = 'a';
-	return a;
+	UK_ASSERT(dev);
+	UK_ASSERT(dev->ops.getc);
+
+	return dev->ops.getc(dev);
 }
