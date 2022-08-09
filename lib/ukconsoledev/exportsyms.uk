@@ -1,3 +1,4 @@
 uk_console_register_device
 uk_console_putc
+uk_console_puts
 uk_console_getc

@@ -24,6 +24,20 @@ void uk_console_putc(char ch)
 	dev->ops.putc(dev, ch);
 }
 
+void uk_console_puts(char *str, int len)
+{
+	int i;
+
+	UK_ASSERT(len >= 0);
+
+	for (i = 0; i < len; i++) {
+		if (str[i] == '\0') {
+			break;
+		}
+		uk_console_putc(str[i]);
+	}
+}
+
 char uk_console_getc()
 {
 	UK_ASSERT(dev);

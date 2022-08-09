@@ -22,6 +22,7 @@ struct uk_console_device {
 
 void uk_console_register_device(struct uk_console_device *);
 void uk_console_putc(char);
+void uk_console_puts(char *, int);
 char uk_console_getc();
 
 #ifdef __cplusplus

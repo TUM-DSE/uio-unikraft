@@ -147,7 +147,7 @@ static int virtio_console_vq_alloc(struct virtio_console_device *d)
 		rc = PTR2ERR(d->txq->vq);
 		goto exit;
 	}
-	uk_sglist_init(&d->rxq->sg, 1, &d->rxq->sgsegs[0]);
+	uk_sglist_init(&d->txq->sg, 1, &d->txq->sgsegs[0]);
 	d->txq->vq->priv = d;
 
 exit:
@@ -315,6 +315,34 @@ static char virtio_console_getc(struct uk_console_device *uk_cdev)
 static void virtio_console_putc(struct uk_console_device *uk_cdev, char c)
 {
 	struct virtio_console_device *cdev = to_virtiocdev(uk_cdev);
+	struct uk_sglist *sg = &cdev->txq->sg;
+	void *buf = &cdev->txq->buf[0];
+	int rc;
+	__u32 len;
+
+	cdev->txq->buf[0] = c;
+	uk_sglist_reset(sg);
+	rc = uk_sglist_append(sg, buf, 1);
+	if (unlikely(rc != 0)) {
+		uk_pr_err(DRIVER_NAME ": Failed to uk_sglist_append()\n");
+		return;
+	}
+
+	rc = virtqueue_buffer_enqueue(cdev->txq->vq, buf, sg, sg->sg_nseg, 0);
+	if (unlikely(rc < 0)) {
+		uk_pr_err(DRIVER_NAME
+			  ": Failed to virtqueue_buffer_enqueue()\n");
+	} else {
+		virtqueue_host_notify(cdev->txq->vq);
+		// wait for completion
+		while (!virtqueue_hasdata(cdev->txq->vq)) {
+			ukarch_spinwait();
+		}
+		rc = virtqueue_buffer_dequeue(cdev->txq->vq, (void **)&buf,
+					      &len);
+		UK_ASSERT(rc == 0);
+		UK_ASSERT(buf == &cdev->txq->buf[0]);
+	}
 }
 
 static int virtio_console_add_dev(struct virtio_dev *vdev)
