@@ -13,12 +13,13 @@
 #define DRIVER_NAME "virtio-console"
 static struct uk_alloc *a;
 
+#define BUF_SIZE 128
 struct virtio_console_queue {
 	struct virtqueue *vq;
 	uint16_t hwvq_id;
 	struct uk_sglist sg;
 	struct uk_sglist_seg sgsegs[1];
-	char buf[1];
+	char buf[BUF_SIZE];
 };
 
 #define RECV_BUF_SIZE 1024
@@ -37,7 +38,8 @@ struct virtio_console_device {
 	__containerof(dev, struct virtio_console_device, uk_cdev)
 
 static int virtio_console_rxq_enqueue(struct virtio_console_device *d);
-static int virtio_console_rxq_dequeue(struct virtio_console_device *d, char *c);
+static int virtio_console_rxq_dequeue(struct virtio_console_device *d,
+				      char (**buf)[BUF_SIZE]);
 
 static int virtio_console_start(struct virtio_console_device *d)
 {
@@ -78,28 +80,33 @@ static int virtio_console_recv(struct virtqueue *vq, void *priv)
 	struct virtio_console_device *cdev = priv;
 	int handled = 0;
 	int rc;
-	char c;
+	char(*buf)[BUF_SIZE];
+	int i, len;
 
 	UK_ASSERT(vq);
 	UK_ASSERT(cdev);
 	UK_ASSERT(vq == cdev->rxq->vq);
 
-	virtio_console_rxq_dequeue(cdev, &c);
-	uk_pr_debug(DRIVER_NAME ": recv: %c\n", c);
+	len = virtio_console_rxq_dequeue(cdev, &buf);
+
+	for (i = 0; i < len; i++) {
+		if ((cdev->recv_buf_head + 1) % RECV_BUF_SIZE
+		    == cdev->recv_buf_idx) {
+			uk_pr_err(DRIVER_NAME ": recv buffer full\n");
+			// TODO: error handling
+		} else {
+			cdev->recv_buf[cdev->recv_buf_head] = (*buf)[i];
+			cdev->recv_buf_head =
+			    (cdev->recv_buf_head + 1) % RECV_BUF_SIZE;
+		}
+	}
+
 	rc = virtio_console_rxq_enqueue(cdev);
 	if (rc) {
 		uk_pr_err(DRIVER_NAME
 			  ": Failed to add a buffer to receive queue\n");
 	}
 	handled = 1;
-
-	if ((cdev->recv_buf_head + 1) % RECV_BUF_SIZE == cdev->recv_buf_idx) {
-		uk_pr_err(DRIVER_NAME ": recv buffer full\n");
-		// TODO: error handling
-	} else {
-		cdev->recv_buf[cdev->recv_buf_head] = c;
-		cdev->recv_buf_head = (cdev->recv_buf_head + 1) % RECV_BUF_SIZE;
-	}
 
 	return handled;
 }
@@ -164,7 +171,7 @@ static int virtio_console_rxq_enqueue(struct virtio_console_device *d)
 
 	uk_sglist_reset(sg);
 
-	rc = uk_sglist_append(sg, buf, 1);
+	rc = uk_sglist_append(sg, buf, sizeof(d->rxq->buf));
 	if (unlikely(rc != 0)) {
 		uk_pr_err(DRIVER_NAME ": Failed to uk_sglist_append()\n");
 		return rc;
@@ -179,13 +186,13 @@ static int virtio_console_rxq_enqueue(struct virtio_console_device *d)
 	return rc;
 }
 
-static int virtio_console_rxq_dequeue(struct virtio_console_device *d, char *c)
+static int virtio_console_rxq_dequeue(struct virtio_console_device *d,
+				      char (**buf)[BUF_SIZE])
 {
 	int rc;
 	__u32 len;
-	char *buf[1];
 
-	rc = virtqueue_buffer_dequeue(d->rxq->vq, (void **)&buf, &len);
+	rc = virtqueue_buffer_dequeue(d->rxq->vq, (void **)buf, &len);
 	if (rc < 0) {
 		uk_pr_info("No data available in the queue\n");
 		return -1;
@@ -194,8 +201,6 @@ static int virtio_console_rxq_dequeue(struct virtio_console_device *d, char *c)
 	if (unlikely(len < 1)) {
 		uk_pr_err("Received invalid response size: %u\n", len);
 	}
-
-	*c = *buf[0];
 
 	return len;
 }
@@ -244,9 +249,18 @@ static int virtio_console_peak(struct virtio_console_device *cdev)
 static char virtio_console_getc(struct uk_console_device *uk_cdev)
 {
 	char c;
-	int rc = 0;
+	int i, len, rc = 0;
+	char(*buf)[BUF_SIZE];
 	struct virtio_console_device *cdev = to_virtiocdev(uk_cdev);
 
+	// return char if any in the buffer
+	if (cdev->recv_buf_idx != cdev->recv_buf_head) {
+		c = cdev->recv_buf[cdev->recv_buf_idx];
+		cdev->recv_buf_idx = (cdev->recv_buf_idx + 1) % RECV_BUF_SIZE;
+		return c;
+	}
+
+	// if interrupt enabled, then wait for an interrupt
 	if (cdev->interrupt_enabled) {
 		while (cdev->recv_buf_idx == cdev->recv_buf_head) {
 			ukarch_spinwait();
@@ -256,11 +270,27 @@ static char virtio_console_getc(struct uk_console_device *uk_cdev)
 		return c;
 	}
 
+	// if not, then busy wait
 	while (!virtio_console_peak(cdev)) {
 		ukarch_spinwait();
 	}
 
-	virtio_console_rxq_dequeue(cdev, &c);
+	// get data
+	len = virtio_console_rxq_dequeue(cdev, &buf);
+	for (i = 0; i < len; i++) {
+		if ((cdev->recv_buf_head + 1) % RECV_BUF_SIZE
+		    == cdev->recv_buf_idx) {
+			uk_pr_err(DRIVER_NAME ": recv buffer full\n");
+			// TODO: error handling
+		} else {
+			cdev->recv_buf[cdev->recv_buf_head] = (*buf)[i];
+			cdev->recv_buf_head =
+			    (cdev->recv_buf_head + 1) % RECV_BUF_SIZE;
+		}
+	}
+
+	c = cdev->recv_buf[cdev->recv_buf_idx];
+	cdev->recv_buf_idx = (cdev->recv_buf_idx + 1) % RECV_BUF_SIZE;
 
 	rc = virtio_console_rxq_enqueue(cdev);
 	if (unlikely(rc != 0)) {
