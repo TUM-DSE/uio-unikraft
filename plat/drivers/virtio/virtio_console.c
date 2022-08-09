@@ -40,6 +40,8 @@ struct virtio_console_device {
 static int virtio_console_rxq_enqueue(struct virtio_console_device *d);
 static int virtio_console_rxq_dequeue(struct virtio_console_device *d,
 				      char (**buf)[BUF_SIZE]);
+static int virtio_console_put_buffer(struct virtio_console_device *cdev,
+				     char (*buf)[BUF_SIZE], int len);
 
 static int virtio_console_start(struct virtio_console_device *d)
 {
@@ -48,7 +50,7 @@ static int virtio_console_start(struct virtio_console_device *d)
 
 	virtqueue_intr_disable(d->rxq->vq);
 	virtqueue_intr_disable(d->txq->vq);
-#if 0 // use interrupt
+#if 1 // use interrupt
 	d->interrupt_enabled = 1;
 	rc = virtqueue_intr_enable(d->rxq->vq);
 #endif
@@ -79,27 +81,16 @@ static int virtio_console_recv(struct virtqueue *vq, void *priv)
 {
 	struct virtio_console_device *cdev = priv;
 	int handled = 0;
-	int rc;
+	int len, rc;
 	char(*buf)[BUF_SIZE];
-	int i, len;
 
 	UK_ASSERT(vq);
 	UK_ASSERT(cdev);
 	UK_ASSERT(vq == cdev->rxq->vq);
 
 	len = virtio_console_rxq_dequeue(cdev, &buf);
-
-	for (i = 0; i < len; i++) {
-		if ((cdev->recv_buf_head + 1) % RECV_BUF_SIZE
-		    == cdev->recv_buf_idx) {
-			uk_pr_err(DRIVER_NAME ": recv buffer full\n");
-			// TODO: error handling
-		} else {
-			cdev->recv_buf[cdev->recv_buf_head] = (*buf)[i];
-			cdev->recv_buf_head =
-			    (cdev->recv_buf_head + 1) % RECV_BUF_SIZE;
-		}
-	}
+	rc = virtio_console_put_buffer(cdev, buf, len);
+	UK_ASSERT(rc == 0);
 
 	rc = virtio_console_rxq_enqueue(cdev);
 	if (rc) {
@@ -246,17 +237,46 @@ static int virtio_console_peak(struct virtio_console_device *cdev)
 	return virtqueue_hasdata(cdev->rxq->vq);
 }
 
+static int virtio_console_getc_from_buffer(struct virtio_console_device *cdev,
+					   char *c)
+{
+	if (cdev->recv_buf_idx == cdev->recv_buf_head) {
+		// no data
+		return -1;
+	}
+	*c = cdev->recv_buf[cdev->recv_buf_idx];
+	cdev->recv_buf_idx = (cdev->recv_buf_idx + 1) % RECV_BUF_SIZE;
+	return 0;
+}
+
+static int virtio_console_put_buffer(struct virtio_console_device *cdev,
+				     char (*buf)[BUF_SIZE], int len)
+{
+	int i;
+	for (i = 0; i < len; i++) {
+		if ((cdev->recv_buf_head + 1) % RECV_BUF_SIZE
+		    == cdev->recv_buf_idx) {
+			uk_pr_err(DRIVER_NAME ": recv buffer full\n");
+			return -1;
+		} else {
+			cdev->recv_buf[cdev->recv_buf_head] = (*buf)[i];
+			cdev->recv_buf_head =
+			    (cdev->recv_buf_head + 1) % RECV_BUF_SIZE;
+		}
+	}
+	return 0;
+}
+
 static char virtio_console_getc(struct uk_console_device *uk_cdev)
 {
 	char c;
-	int i, len, rc = 0;
+	int len, rc = 0;
 	char(*buf)[BUF_SIZE];
 	struct virtio_console_device *cdev = to_virtiocdev(uk_cdev);
 
 	// return char if any in the buffer
-	if (cdev->recv_buf_idx != cdev->recv_buf_head) {
-		c = cdev->recv_buf[cdev->recv_buf_idx];
-		cdev->recv_buf_idx = (cdev->recv_buf_idx + 1) % RECV_BUF_SIZE;
+	rc = virtio_console_getc_from_buffer(cdev, &c);
+	if (rc == 0) {
 		return c;
 	}
 
@@ -265,8 +285,8 @@ static char virtio_console_getc(struct uk_console_device *uk_cdev)
 		while (cdev->recv_buf_idx == cdev->recv_buf_head) {
 			ukarch_spinwait();
 		}
-		c = cdev->recv_buf[cdev->recv_buf_idx];
-		cdev->recv_buf_idx = (cdev->recv_buf_idx + 1) % RECV_BUF_SIZE;
+		rc = virtio_console_getc_from_buffer(cdev, &c);
+		UK_ASSERT(rc == 0);
 		return c;
 	}
 
@@ -277,20 +297,11 @@ static char virtio_console_getc(struct uk_console_device *uk_cdev)
 
 	// get data
 	len = virtio_console_rxq_dequeue(cdev, &buf);
-	for (i = 0; i < len; i++) {
-		if ((cdev->recv_buf_head + 1) % RECV_BUF_SIZE
-		    == cdev->recv_buf_idx) {
-			uk_pr_err(DRIVER_NAME ": recv buffer full\n");
-			// TODO: error handling
-		} else {
-			cdev->recv_buf[cdev->recv_buf_head] = (*buf)[i];
-			cdev->recv_buf_head =
-			    (cdev->recv_buf_head + 1) % RECV_BUF_SIZE;
-		}
-	}
+	rc = virtio_console_put_buffer(cdev, buf, len);
+	UK_ASSERT(rc == 0);
 
-	c = cdev->recv_buf[cdev->recv_buf_idx];
-	cdev->recv_buf_idx = (cdev->recv_buf_idx + 1) % RECV_BUF_SIZE;
+	rc = virtio_console_getc_from_buffer(cdev, &c);
+	UK_ASSERT(rc == 0);
 
 	rc = virtio_console_rxq_enqueue(cdev);
 	if (unlikely(rc != 0)) {
