@@ -1,6 +1,7 @@
 #include <inttypes.h>
 #include <string.h>
 #include <unistd.h>
+#include <uk/assert.h>
 #include <uk/alloc.h>
 #include <uk/essentials.h>
 #include <uk/sglist.h>
@@ -20,15 +21,23 @@ struct virtio_console_queue {
 	char buf[1];
 };
 
+#define RECV_BUF_SIZE 1024
 struct virtio_console_device {
 	struct virtio_dev *vdev;
 	struct virtio_console_queue *rxq;
 	struct virtio_console_queue *txq;
 	struct uk_console_device uk_cdev;
+	char recv_buf[RECV_BUF_SIZE];
+	int recv_buf_idx;
+	int recv_buf_head;
+	int interrupt_enabled;
 };
 
 #define to_virtiocdev(dev)                                                     \
 	__containerof(dev, struct virtio_console_device, uk_cdev)
+
+static int virtio_console_rxq_enqueue(struct virtio_console_device *d);
+static int virtio_console_rxq_dequeue(struct virtio_console_device *d, char *c);
 
 static int virtio_console_start(struct virtio_console_device *d)
 {
@@ -37,7 +46,10 @@ static int virtio_console_start(struct virtio_console_device *d)
 
 	virtqueue_intr_disable(d->rxq->vq);
 	virtqueue_intr_disable(d->txq->vq);
-	// rc = virtqueue_intr_enable(d->rxq->vq);
+#if 0 // use interrupt
+	d->interrupt_enabled = 1;
+	rc = virtqueue_intr_enable(d->rxq->vq);
+#endif
 	UK_ASSERT(rc == 0);
 	virtio_dev_drv_up(d->vdev);
 	uk_pr_info(DRIVER_NAME ": started\n");
@@ -63,8 +75,32 @@ static int virtio_console_feature_negotiate(struct virtio_console_device *d)
 /* call back function when receiving an interrupt */
 static int virtio_console_recv(struct virtqueue *vq, void *priv)
 {
-	int handled = 1;
-	uk_pr_debug(DRIVER_NAME ": recv\n");
+	struct virtio_console_device *cdev = priv;
+	int handled = 0;
+	int rc;
+	char c;
+
+	UK_ASSERT(vq);
+	UK_ASSERT(cdev);
+	UK_ASSERT(vq == cdev->rxq->vq);
+
+	virtio_console_rxq_dequeue(cdev, &c);
+	uk_pr_debug(DRIVER_NAME ": recv: %c\n", c);
+	rc = virtio_console_rxq_enqueue(cdev);
+	if (rc) {
+		uk_pr_err(DRIVER_NAME
+			  ": Failed to add a buffer to receive queue\n");
+	}
+	handled = 1;
+
+	if ((cdev->recv_buf_head + 1) % RECV_BUF_SIZE == cdev->recv_buf_idx) {
+		uk_pr_err(DRIVER_NAME ": recv buffer full\n");
+		// TODO: error handling
+	} else {
+		cdev->recv_buf[cdev->recv_buf_head] = c;
+		cdev->recv_buf_head = (cdev->recv_buf_head + 1) % RECV_BUF_SIZE;
+	}
+
 	return handled;
 }
 
@@ -136,7 +172,7 @@ static int virtio_console_rxq_enqueue(struct virtio_console_device *d)
 
 	rc = virtqueue_buffer_enqueue(d->rxq->vq, buf, sg, 0, sg->sg_nseg);
 	if (likely(rc >= 0)) {
-		// virtqueue_host_notify(d->rxq->vq);
+		virtqueue_host_notify(d->rxq->vq);
 		rc = 0;
 	}
 
@@ -211,17 +247,26 @@ static char virtio_console_getc(struct uk_console_device *uk_cdev)
 	int rc = 0;
 	struct virtio_console_device *cdev = to_virtiocdev(uk_cdev);
 
+	if (cdev->interrupt_enabled) {
+		while (cdev->recv_buf_idx == cdev->recv_buf_head) {
+			ukarch_spinwait();
+		}
+		c = cdev->recv_buf[cdev->recv_buf_idx];
+		cdev->recv_buf_idx = (cdev->recv_buf_idx + 1) % RECV_BUF_SIZE;
+		return c;
+	}
+
 	while (!virtio_console_peak(cdev)) {
 		ukarch_spinwait();
 	}
+
+	virtio_console_rxq_dequeue(cdev, &c);
 
 	rc = virtio_console_rxq_enqueue(cdev);
 	if (unlikely(rc != 0)) {
 		uk_pr_err(DRIVER_NAME
 			  ": Failed to add a buffer to receive queue\n");
 	}
-
-	virtio_console_rxq_dequeue(cdev, &c);
 
 	return c;
 }
@@ -245,6 +290,9 @@ static int virtio_console_add_dev(struct virtio_dev *vdev)
 		goto out;
 	}
 	vcdev->vdev = vdev;
+	vcdev->recv_buf_idx = 0;
+	vcdev->recv_buf_head = 0;
+	vcdev->interrupt_enabled = 0;
 
 	vcdev->rxq = uk_calloc(a, 1, sizeof(*vcdev->rxq));
 	if (!vcdev) {
