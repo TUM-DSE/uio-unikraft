@@ -119,6 +119,14 @@ config VIRTIO_PCI
        help
                Support virtio devices on PCI bus
 
+config VIRTIO_MMIO
+       bool "Virtio MMIO device support"
+       default y if (VIRTIO_CONSOLE)
+       default n
+       select VIRTIO_BUS
+       help
+               Support virtio devices on MMIO transport
+
 config VIRTIO_NET
        bool "Virtio Net device"
        default y if LIBUKNETDEV

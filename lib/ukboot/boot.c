@@ -81,6 +81,18 @@ struct thread_main_arg {
 	char **argv;
 };
 
+#ifdef CONFIG_VIRTIO_MMIO
+#include <string.h>
+#include <stdlib.h>
+struct virtio_mmio_config {
+	int active;
+	uint64_t base;
+	unsigned long irq;
+};
+#define VIRTIO_MMIO_MAX_NUM 8
+struct virtio_mmio_config virtio_mmio_config[VIRTIO_MMIO_MAX_NUM];
+#endif
+
 static void main_thread_func(void *arg)
 {
 	int i;
@@ -204,6 +216,39 @@ void ukplat_entry(int argc, char *argv[])
 		(*ctorfn)();
 	}
 
+#ifdef CONFIG_VIRTIO_MMIO
+	{
+		/* parse mmio cmdline if any */
+		int i, j, k;
+		char *p, *q, *pat = "virtio_mmio.device=";
+		j = 0;
+		for (i = 0; i < argc;) {
+			p = argv[i];
+			uk_pr_info("argv %d: %s\n", i, p);
+			if (!strncmp(p, pat, strlen(pat))) {
+				p += strlen(pat);
+				while (*p != '@' && *p != '\0')
+					p++;
+				UK_ASSERT(*p == '@');
+				p++;
+				virtio_mmio_config[j].base =
+				    strtoull(p, &q, 16);
+				UK_ASSERT(*q == ':');
+				virtio_mmio_config[j].irq =
+				    strtoull(++q, NULL, 10);
+				virtio_mmio_config[j].active = 1;
+				j++;
+				for (k = i + 1; k < argc; k++) {
+					argv[k - 1] = argv[k];
+				}
+				argc -= 1;
+			} else {
+				i++;
+			}
+		}
+	}
+#endif /* CONFIG_VIRTIO_MMIO */
+
 #ifdef CONFIG_LIBUKLIBPARAM
 	rc = (argc > 1) ? uk_libparam_parse(argv[0], argc - 1, &argv[1]) : 0;
 	if (unlikely(rc < 0))
@@ -277,6 +322,26 @@ void ukplat_entry(int argc, char *argv[])
 	if (unlikely(!s))
 		UK_CRASH("Could not initialize the scheduler\n");
 #endif
+
+#ifdef CONFIG_VIRTIO_MMIO
+	{
+		int i;
+		int virtio_mmio_drv_init(struct uk_alloc * drv_allocator);
+		int virtio_mmio_add_dev_addr(uint64_t base, unsigned long irq);
+		uk_pr_info("Probe virtio mmio\n");
+		virtio_mmio_drv_init(a);
+		for (i = 0; i < VIRTIO_MMIO_MAX_NUM; i++) {
+			if (virtio_mmio_config[i].active) {
+				uk_pr_info("  add: base=%#lx, irq=%lu\n",
+					   virtio_mmio_config[i].base,
+					   virtio_mmio_config[i].irq);
+				virtio_mmio_add_dev_addr(
+				    virtio_mmio_config[i].base,
+				    virtio_mmio_config[i].irq);
+			}
+		}
+	}
+#endif /* CONFIG_VIRTIO_MMIO */
 
 	tma.argc = argc - kern_args;
 	tma.argv = &argv[kern_args];

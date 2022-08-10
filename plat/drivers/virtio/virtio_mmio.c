@@ -40,8 +40,10 @@
 #include <uk/plat/irq.h>
 #include <uk/bus.h>
 #include <uk/bitops.h>
+#ifdef CONFIG_ARCH_ARM_32
 #include <libfdt.h>
 #include <ofw/fdt.h>
+#endif // CONFIG_ARCH_ARM_32
 #include <kvm/config.h>
 
 #include <platform_bus.h>
@@ -393,6 +395,7 @@ static struct virtio_config_ops virtio_mmio_config_ops = {
 	.vq_setup	= vm_setup_vq,
 };
 
+#ifdef CONFIG_ARCH_ARM_32
 static int virtio_mmio_probe(struct pf_device *pfdev)
 {
 	const fdt32_t *prop;
@@ -434,6 +437,7 @@ static int virtio_mmio_probe(struct pf_device *pfdev)
 error_exit:
 	return -EFAULT;
 }
+#endif // CONFIG_ARCH_ARM_32
 
 static int virtio_mmio_add_dev(struct pf_device *pfdev)
 {
@@ -505,7 +509,19 @@ free_vmdev:
 	return rc;
 }
 
-static int virtio_mmio_drv_init(struct uk_alloc *drv_allocator)
+int virtio_mmio_add_dev_addr(uint64_t base, unsigned long irq)
+{
+	struct pf_device *pfdev;
+
+	pfdev = uk_zalloc(a, sizeof(*pfdev));
+	UK_ASSERT(pfdev);
+	pfdev->base = base;
+	pfdev->irq = irq;
+
+	return virtio_mmio_add_dev(pfdev);
+}
+
+int virtio_mmio_drv_init(struct uk_alloc *drv_allocator)
 {
 	/* driver initialization */
 	if (!drv_allocator)
@@ -516,6 +532,7 @@ static int virtio_mmio_drv_init(struct uk_alloc *drv_allocator)
 	return 0;
 }
 
+#ifdef CONFIG_ARCH_ARM_32
 static const struct device_match_table virtio_mmio_match_table[];
 
 static int virtio_mmio_id_match_compatible(const char *compatible)
@@ -548,3 +565,4 @@ static const struct device_match_table virtio_mmio_match_table[] = {
 };
 
 PF_REGISTER_DRIVER(&virtio_mmio_drv);
+#endif // CONFIG_ARCH_ARM_32
