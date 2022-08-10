@@ -56,6 +56,108 @@ extern "C" {
 #define VIRTIO_F_VERSION_1		32
 
 #ifdef __X86_64__
+
+#ifdef CONFIG_VIRTIO_MMIO
+
+static inline void write_u8(const unsigned long addr, uint8_t value)
+{
+	__asm__ volatile("" : : : "memory");
+	*(volatile uint8_t *)addr = value;
+}
+
+static inline void write_u16(const unsigned long addr, uint16_t value)
+{
+	__asm__ volatile("" : : : "memory");
+	*(volatile uint16_t *)addr = value;
+}
+
+static inline void write_u32(const unsigned long addr, uint32_t value)
+{
+	__asm__ volatile("" : : : "memory");
+	*(volatile uint32_t *)addr = value;
+}
+
+static inline uint8_t read_u8(const unsigned long addr)
+{
+	__asm__ volatile("" : : : "memory");
+	return *(volatile uint8_t *)addr;
+}
+
+static inline uint16_t read_u16(const unsigned long addr)
+{
+	__asm__ volatile("" : : : "memory");
+	return *(volatile uint16_t *)addr;
+}
+
+static inline uint32_t read_u32(const unsigned long addr)
+{
+	__asm__ volatile("" : : : "memory");
+	return *(volatile uint32_t *)addr;
+}
+
+static inline uint64_t read_u64(const unsigned long addr)
+{
+	uk_pr_info("read64: %#lx\n", addr);
+	__asm__ volatile("" : : : "memory");
+	return *(volatile uint64_t *)addr;
+}
+
+static inline void _virtio_cwrite_bytes(const void *addr, const __u8 offset,
+					const void *buf, int len, int type_len)
+{
+	int i = 0;
+	unsigned long io_addr;
+	int count;
+
+	count = len / type_len;
+	for (i = 0; i < count; i++) {
+		io_addr = ((unsigned long)addr) + offset + (i * type_len);
+		switch (type_len) {
+		case 1:
+			write_u8(io_addr, ((__u8 *)buf)[i * type_len]);
+			break;
+		case 2:
+			write_u16(io_addr, ((__u16 *)buf)[i * type_len]);
+			break;
+		case 4:
+			write_u32(io_addr, ((__u32 *)buf)[i * type_len]);
+			break;
+		default:
+			UK_CRASH("Unsupported virtio write operation\n");
+		}
+	}
+}
+
+static inline void _virtio_cread_bytes(const void *addr, const __u8 offset,
+				       void *buf, int len, int type_len)
+{
+	int i = 0;
+	unsigned long io_addr;
+	int count;
+
+	count = len / type_len;
+	for (i = 0; i < count; i++) {
+		io_addr = ((unsigned long)addr) + offset + (i * type_len);
+		switch (type_len) {
+		case 1:
+			((__u8 *)buf)[i * type_len] = read_u8(io_addr);
+			break;
+		case 2:
+			((__u16 *)buf)[i * type_len] = read_u16(io_addr);
+			break;
+		case 4:
+			((__u32 *)buf)[i * type_len] = read_u32(io_addr);
+			break;
+		case 8:
+			((__u64 *)buf)[i * type_len] = read_u64(io_addr);
+			break;
+		default:
+			UK_CRASH("Unsupported virtio read operation\n");
+		}
+	}
+}
+
+#else
 static inline void _virtio_cwrite_bytes(const void *addr, const __u8 offset,
 					const void *buf, int len, int type_len)
 {
@@ -110,6 +212,7 @@ static inline void _virtio_cread_bytes(const void *addr, const __u8 offset,
 		}
 	}
 }
+#endif /* CONFIG_VIRTIO_MMIO */
 #else  /* __X86_64__ */
 
 /* IO barriers */
