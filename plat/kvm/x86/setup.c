@@ -133,11 +133,52 @@ static void _convert_mbinfo(struct multiboot_info *mi)
 	}
 }
 
+static int is_on_qemu()
+{
+	__u32 reg[4];
+	char *p;
+	char *sig1 = "TCGTCGTCGTCG";
+	char *sig2 = "KVMKVMKVM\0\0\0";
+
+	cpuid(0x40000000, 0, &reg[0], &reg[1], &reg[2], &reg[3]);
+	p = (char *)(&reg[1]);
+
+	return !memcmp(p, sig1, 12) || !memcmp(p, sig2, 12);
+}
+
+#define QEMU_FW_CFG_PORT_SEL       0x510
+#define QEMU_FW_CFG_PORT_DATA      0x511
+#define QEMU_FW_CFG_CMDLINE_SIZE   0x14
+#define QEMU_FW_CFG_CMDLINE_DATA   0x15
+static int _get_qemu_fw_cfg_cmdline()
+{
+	unsigned char size, i;
+
+	if (!is_on_qemu()) {
+		uk_pr_info("     not running on qemu\n");
+		return 0;
+	}
+	outw(QEMU_FW_CFG_PORT_SEL, QEMU_FW_CFG_CMDLINE_SIZE);
+	size = inb(QEMU_FW_CFG_PORT_DATA);
+	uk_pr_info("     QEMU fw cfg: size=%d\n", size);
+
+	outw(QEMU_FW_CFG_PORT_SEL, QEMU_FW_CFG_CMDLINE_DATA);
+	for (i = 0; i < size; i++){
+		cmdline[i] = inb(QEMU_FW_CFG_PORT_DATA);
+	}
+
+	return size;
+}
+
 static inline void _get_cmdline(struct uk_bootinfo *bi)
 {
 	char *mi_cmdline;
 
-	if (bi->u64_cmdline) {
+	if (_get_qemu_fw_cfg_cmdline()) {
+		/* we use qemu fw cfg cmdline instead of multiboot cmdline if
+		 * available
+		 */
+	} else if (bi->u64_cmdline) {
 		mi_cmdline = (char *)bi->u64_cmdline;
 
 		if (strlen(mi_cmdline) > sizeof(cmdline) - 1)
