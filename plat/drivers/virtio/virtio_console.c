@@ -351,6 +351,7 @@ static int virtio_console_add_dev(struct virtio_dev *vdev)
 	struct uk_console_device *uk_cdev = NULL;
 	int rc = 0;
 
+	UK_ASSERT(a != NULL);
 	UK_ASSERT(vdev != NULL);
 
 	vcdev = uk_calloc(a, 1, sizeof(*vcdev));

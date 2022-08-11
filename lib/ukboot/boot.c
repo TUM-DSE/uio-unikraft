@@ -85,8 +85,8 @@ struct thread_main_arg {
 #include <string.h>
 #include <stdlib.h>
 struct virtio_mmio_config {
-	int active;
 	uint64_t base;
+	uint64_t size;
 	unsigned long irq;
 };
 #define VIRTIO_MMIO_MAX_NUM 8
@@ -218,7 +218,9 @@ void ukplat_entry(int argc, char *argv[])
 
 #ifdef CONFIG_VIRTIO_MMIO
 	{
-		/* parse mmio cmdline if any */
+		/* parse mmio cmdline if any
+		 * format: <size>@<baseaddr>:<irq>[:<id>]
+		 */
 		int i, j, k;
 		char *p, *q, *pat = "virtio_mmio.device=";
 		j = 0;
@@ -227,8 +229,21 @@ void ukplat_entry(int argc, char *argv[])
 			uk_pr_info("argv %d: %s\n", i, p);
 			if (!strncmp(p, pat, strlen(pat))) {
 				p += strlen(pat);
-				while (*p != '@' && *p != '\0')
+				virtio_mmio_config[j].size =
+				    strtoull(p, &q, 10);
+				p = q;
+				if (*p == 'K' || *p == 'k') {
+					virtio_mmio_config[j].size *= 1024;
 					p++;
+				} else if (*p == 'm' || *p == 'M') {
+					virtio_mmio_config[j].size *=
+					    1024 * 1024;
+					p++;
+				} else if (*p == 'g' || *p == 'G') {
+					virtio_mmio_config[j].size *=
+					    1024 * 1024 * 1024;
+					p++;
+				}
 				UK_ASSERT(*p == '@');
 				p++;
 				virtio_mmio_config[j].base =
@@ -236,8 +251,8 @@ void ukplat_entry(int argc, char *argv[])
 				UK_ASSERT(*q == ':');
 				virtio_mmio_config[j].irq =
 				    strtoull(++q, NULL, 10);
-				virtio_mmio_config[j].active = 1;
 				j++;
+				/* remove this entry from argv */
 				for (k = i + 1; k < argc; k++) {
 					argv[k - 1] = argv[k];
 				}
@@ -326,15 +341,19 @@ void ukplat_entry(int argc, char *argv[])
 #ifdef CONFIG_VIRTIO_MMIO
 	{
 		int i;
+		int virtio_bus_init(struct uk_alloc * mem_alloc);
 		int virtio_mmio_drv_init(struct uk_alloc * drv_allocator);
 		int virtio_mmio_add_dev_addr(uint64_t base, unsigned long irq);
 		uk_pr_info("Probe virtio mmio\n");
+		virtio_bus_init(a);
 		virtio_mmio_drv_init(a);
 		for (i = 0; i < VIRTIO_MMIO_MAX_NUM; i++) {
-			if (virtio_mmio_config[i].active) {
-				uk_pr_info("  add: base=%#lx, irq=%lu\n",
-					   virtio_mmio_config[i].base,
-					   virtio_mmio_config[i].irq);
+			if (virtio_mmio_config[i].size > 0) {
+				uk_pr_info(
+				    "  add: base=%#lx, size=%ld, irq=%lu\n",
+				    virtio_mmio_config[i].base,
+				    virtio_mmio_config[i].size,
+				    virtio_mmio_config[i].irq);
 				virtio_mmio_add_dev_addr(
 				    virtio_mmio_config[i].base,
 				    virtio_mmio_config[i].irq);

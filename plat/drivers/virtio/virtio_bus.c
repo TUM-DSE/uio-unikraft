@@ -52,7 +52,7 @@ static struct uk_alloc *a;
  */
 static int virtio_device_reinit(struct virtio_dev *vdev);
 static struct virtio_driver *find_match_drv(struct virtio_dev *vdev);
-static int virtio_bus_init(struct uk_alloc *mem_alloc);
+int virtio_bus_init(struct uk_alloc *mem_alloc);
 static int virtio_bus_probe(void);
 
 static inline int virtio_device_id_match(const struct virtio_dev_id *id0,
@@ -189,7 +189,7 @@ static int virtio_bus_probe(void)
  *	initialized.
  *	On error return -1.
  */
-static int virtio_bus_init(struct uk_alloc *mem_alloc)
+int virtio_bus_init(struct uk_alloc *mem_alloc)
 {
 	struct virtio_driver *drv = NULL, *ndrv = NULL;
 	int ret = 0, dev_count = 0;

@@ -509,13 +509,18 @@ free_vmdev:
 	return rc;
 }
 
-int virtio_mmio_add_dev_addr(uint64_t base, unsigned long irq)
+int virtio_mmio_add_dev_addr(uint64_t paddr, unsigned long irq)
 {
 	struct pf_device *pfdev;
 
 	pfdev = uk_zalloc(a, sizeof(*pfdev));
 	UK_ASSERT(pfdev);
-	pfdev->base = base;
+#ifdef CONFIG_ARCH_X86_64
+	/* use direct map area to access mmio region */
+	pfdev->base = 0xffffff8000000000 + paddr;
+#else
+	pfdev->base = paddr;
+#endif
 	pfdev->irq = irq;
 
 	return virtio_mmio_add_dev(pfdev);

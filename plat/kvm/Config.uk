@@ -124,6 +124,7 @@ config VIRTIO_MMIO
        default y if (VIRTIO_CONSOLE)
        default n
        select VIRTIO_BUS
+       select PAGING if ARCH_X86_64
        help
                Support virtio devices on MMIO transport
 

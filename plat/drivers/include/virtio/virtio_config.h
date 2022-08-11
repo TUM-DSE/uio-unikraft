@@ -97,7 +97,6 @@ static inline uint32_t read_u32(const unsigned long addr)
 
 static inline uint64_t read_u64(const unsigned long addr)
 {
-	uk_pr_info("read64: %#lx\n", addr);
 	__asm__ volatile("" : : : "memory");
 	return *(volatile uint64_t *)addr;
 }
