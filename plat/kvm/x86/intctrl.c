@@ -83,6 +83,24 @@ static void PIC_remap(int offset1, int offset2)
 
 void intctrl_init(void)
 {
+
+#if defined(CONFIG_VIRTIO_MMIO) && defined (__X86_64__)
+	/* FIXME:
+	 * On QEMU's microvm machine type (which uses virtio-mmio), we need to
+	 * disable APIC explictly here to receive interrupt for some reason.
+	 */
+	__u32 eax, ebx, ecx, edx;
+	cpuid(1, 0, &eax, &ebx, &ecx, &edx);
+#define CPUID_FEAT_EDX_APIC  (1 << 9)
+#define IA32_APIC_BASE_MSR 0x1B
+#define IA32_APIC_BASE_MSR_ENABLE 0x800
+	if (edx & CPUID_FEAT_EDX_APIC) {
+		uint64_t base = rdmsrl(IA32_APIC_BASE_MSR);
+		// disable apic explicitly
+		wrmsrl(IA32_APIC_BASE_MSR, (base & 0xfffff0000));
+	}
+#endif
+
 	PIC_remap(32, 40);
 }
 
