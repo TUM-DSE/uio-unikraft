@@ -57,8 +57,6 @@ extern "C" {
 
 #ifdef __X86_64__
 
-#ifdef CONFIG_VIRTIO_MMIO
-
 static inline void write_u8(const unsigned long addr, uint8_t value)
 {
 	__asm__ volatile("" : : : "memory");
@@ -101,8 +99,9 @@ static inline uint64_t read_u64(const unsigned long addr)
 	return *(volatile uint64_t *)addr;
 }
 
-static inline void _virtio_cwrite_bytes(const void *addr, const __u8 offset,
-					const void *buf, int len, int type_len)
+static inline void _virtio_mmio_cwrite_bytes(const void *addr,
+					     const __u8 offset, const void *buf,
+					     int len, int type_len)
 {
 	int i = 0;
 	unsigned long io_addr;
@@ -127,8 +126,8 @@ static inline void _virtio_cwrite_bytes(const void *addr, const __u8 offset,
 	}
 }
 
-static inline void _virtio_cread_bytes(const void *addr, const __u8 offset,
-				       void *buf, int len, int type_len)
+static inline void _virtio_mmio_cread_bytes(const void *addr, const __u8 offset,
+					    void *buf, int len, int type_len)
 {
 	int i = 0;
 	unsigned long io_addr;
@@ -156,7 +155,6 @@ static inline void _virtio_cread_bytes(const void *addr, const __u8 offset,
 	}
 }
 
-#else
 static inline void _virtio_cwrite_bytes(const void *addr, const __u8 offset,
 					const void *buf, int len, int type_len)
 {
@@ -211,7 +209,7 @@ static inline void _virtio_cread_bytes(const void *addr, const __u8 offset,
 		}
 	}
 }
-#endif /* CONFIG_VIRTIO_MMIO */
+
 #else  /* __X86_64__ */
 
 /* IO barriers */
@@ -412,6 +410,65 @@ static inline void virtio_cwrite32(const void *addr, const __u8 offset,
 {
 	_virtio_cwrite_bytes(addr, offset, &data, sizeof(data), sizeof(data));
 }
+
+#ifdef __X86_64__
+
+static inline __u8 virtio_mmio_cread8(const void *addr, const __u8 offset)
+{
+	__u8 buf = 0;
+
+	_virtio_mmio_cread_bytes(addr, offset, &buf, sizeof(buf), sizeof(buf));
+	return buf;
+}
+
+static inline __u16 virtio_mmio_cread16(const void *addr, const __u8 offset)
+{
+	__u16 buf = 0;
+
+	_virtio_mmio_cread_bytes(addr, offset, &buf, sizeof(buf), sizeof(buf));
+	return buf;
+}
+
+static inline __u32 virtio_mmio_cread32(const void *addr, const __u8 offset)
+{
+	__u32 buf = 0;
+
+	_virtio_mmio_cread_bytes(addr, offset, &buf, sizeof(buf), sizeof(buf));
+	return buf;
+}
+
+static inline void virtio_mmio_cwrite8(const void *addr, const __u8 offset,
+				       const __u8 data)
+{
+	_virtio_mmio_cwrite_bytes(addr, offset, &data, sizeof(data),
+				  sizeof(data));
+}
+
+static inline void virtio_mmio_cwrite16(const void *addr, const __u8 offset,
+					const __u16 data)
+{
+	_virtio_mmio_cwrite_bytes(addr, offset, &data, sizeof(data),
+				  sizeof(data));
+}
+
+static inline void virtio_mmio_cwrite32(const void *addr, const __u8 offset,
+					const __u32 data)
+{
+	_virtio_mmio_cwrite_bytes(addr, offset, &data, sizeof(data),
+				  sizeof(data));
+}
+
+#else
+
+#define virtio_mmio_cwrite8 virtio_cwrite8
+#define virtio_mmio_cwrite16 virtio_cwrite16
+#define virtio_mmio_cwrite32 virtio_cwrite32
+#define virtio_mmio_cread8 virtio_cread8
+#define virtio_mmio_cread16 virtio_cread16
+#define virtio_mmio_cread32 virtio_cread32
+#define virtio_mmio_cread64 virtio_cread64
+
+#endif
 
 #ifdef __cplusplus
 }
