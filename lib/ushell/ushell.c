@@ -51,20 +51,27 @@ static void ushell_gets(char *buf, unsigned size)
 char *strip_str(char *str)
 {
 	char *p = str;
-	while (*p != '\0' && *p == ' ') {
+	while (*p != '\0' && (*p == ' ' || *p == '\n')) {
 		p++;
 	}
 	return p;
 }
 
-static void ushell_listdir(char *path)
+static void ushell_listdir(int argc, char *argv[])
 {
 	DIR *dp;
 	struct dirent *ent;
 	char buf[128];
+	char *path;
+	if (argc >= 2) {
+		path = argv[1];
+	} else {
+		path = "/";
+	}
 	dp = opendir(path);
 	if (!dp) {
-		uk_pr_err("No such directory: %s\n", path);
+		snprintf(buf, sizeof(buf), "No such directory: %s\n", path);
+		ushell_puts(buf);
 		return;
 	}
 	while ((ent = readdir(dp))) {
@@ -77,13 +84,14 @@ static void ushell_listdir(char *path)
 	closedir(dp);
 }
 
-static int ushell_process_cmd(char *cmd)
+static int ushell_process_cmd(int argc, char *argv[])
 {
-	cmd = strip_str(cmd);
+	UK_ASSERT(argc >= 1);
+	char *cmd = argv[0];
 	if (*cmd == '\0') {
 		return 0;
 	} else if (!strcmp(cmd, "ls")) {
-		ushell_listdir("/");
+		ushell_listdir(argc, argv);
 	} else if (!strcmp(cmd, "quit")) {
 		ushell_puts("bye\n");
 		return 1;
@@ -109,10 +117,37 @@ static int ushell_mount()
 	return 0;
 }
 
+#define USHELL_MAX_ARGS 16
+
+static int ushell_split_args(char *buf, char *args[])
+{
+	char *p = buf;
+	int i = 0;
+	args[0] = p;
+	while (1) {
+		p = strip_str(p);
+		args[i++] = p;
+		while (*p != ' ' && *p != '\0' && *p != '\n') {
+			p++;
+		}
+		if (*p == '\0') {
+			break;
+		}
+		*p++ = '\0';
+		if (i >= USHELL_MAX_ARGS) {
+			// FIXME
+			uk_pr_err("ushell: too many args: %s\n", buf);
+			break;
+		}
+	}
+	return i;
+}
+
 void ushell_spawn_shell()
 {
-	int rc;
+	int argc, rc;
 	char buf[BUFSIZE];
+	char *argv[USHELL_MAX_ARGS];
 
 	uk_pr_info("ushell spawn\n");
 
@@ -125,7 +160,8 @@ void ushell_spawn_shell()
 	while (1) {
 		ushell_print_prompt();
 		ushell_gets(&buf[0], BUFSIZE);
-		rc = ushell_process_cmd(buf);
+		argc = ushell_split_args(buf, argv);
+		rc = ushell_process_cmd(argc, argv);
 		if (rc) {
 			break;
 		}
