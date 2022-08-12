@@ -7,6 +7,7 @@
 #include <ushell/ushell.h>
 
 #include <string.h>
+#include <stdio.h>
 
 #define BUFSIZE 128
 
@@ -56,11 +57,33 @@ char *strip_str(char *str)
 	return p;
 }
 
-int ushell_process_cmd(char *cmd)
+static void ushell_listdir(char *path)
+{
+	DIR *dp;
+	struct dirent *ent;
+	char buf[128];
+	dp = opendir(path);
+	if (!dp) {
+		uk_pr_err("No such directory: %s\n", path);
+		return;
+	}
+	while ((ent = readdir(dp))) {
+		if (ent->d_name[0] == '.') {
+			continue;
+		}
+		snprintf(buf, sizeof(buf), "%s\n", ent->d_name);
+		ushell_puts(buf);
+	}
+	closedir(dp);
+}
+
+static int ushell_process_cmd(char *cmd)
 {
 	cmd = strip_str(cmd);
 	if (*cmd == '\0') {
 		return 0;
+	} else if (!strcmp(cmd, "ls")) {
+		ushell_listdir("/");
 	} else if (!strcmp(cmd, "quit")) {
 		ushell_puts("bye\n");
 		return 1;
