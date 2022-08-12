@@ -1,6 +1,5 @@
 #include <uk/assert.h>
 #include <uk/console.h>
-#include <uk/essentials.h>
 #include <uk/print.h>
 #include <vfscore/mount.h>
 
@@ -83,6 +82,26 @@ static void ushell_listdir(int argc, char *argv[])
 	}
 	closedir(dp);
 }
+static void ushell_cat(int argc, char *argv[])
+{
+	FILE *fp;
+	char buf[128];
+
+	if (argc <= 1) {
+		ushell_puts("Usage: cat [file]\n");
+		return;
+	}
+
+	fp = fopen(argv[1], "rt");
+	if (fp == NULL) {
+		snprintf(buf, sizeof(buf), "Error opening file %s", argv[1]);
+		ushell_puts(buf);
+	}
+	while (fgets(buf, 128, fp) != NULL) {
+		ushell_puts(buf);
+	}
+	fclose(fp);
+}
 
 static int ushell_process_cmd(int argc, char *argv[])
 {
@@ -92,6 +111,8 @@ static int ushell_process_cmd(int argc, char *argv[])
 		return 0;
 	} else if (!strcmp(cmd, "ls")) {
 		ushell_listdir(argc, argv);
+	} else if (!strcmp(cmd, "cat")) {
+		ushell_cat(argc, argv);
 	} else if (!strcmp(cmd, "quit")) {
 		ushell_puts("bye\n");
 		return 1;
