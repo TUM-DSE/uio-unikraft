@@ -2,3 +2,4 @@ menuconfig LIBUSHELL
 	bool "ushell"
 	default y
 	select LIBUKDEBUG
+	select LIBUKCONSOLE

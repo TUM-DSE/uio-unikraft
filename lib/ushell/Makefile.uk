@@ -1,3 +1,6 @@
 $(eval $(call addlib_s,libushell,$(CONFIG_LIBUSHELL)))
 
+CINCLUDES-$(CONFIG_LIBUSHELL)		+= -I$(LIBUSHELL_BASE)/include
+CXXINCLUDES-$(CONFIG_LIBUSHELL)		+= -I$(LIBUSHELL_BASE)/include
+
 LIBUSHELL_SRCS-y += $(LIBUSHELL_BASE)/ushell.c
