@@ -2,6 +2,7 @@
 #include <uk/console.h>
 #include <uk/essentials.h>
 #include <uk/print.h>
+#include <vfscore/mount.h>
 
 #include <ushell/ushell.h>
 
@@ -69,12 +70,34 @@ int ushell_process_cmd(char *cmd)
 	return 0;
 }
 
+static int ushell_mount()
+{
+	const char *rootdev = "fs0";
+	const char *rootfs = "9pfs";
+	int rootflags = 0;
+	const char *rootopts = "";
+
+	uk_pr_info("ushell: mount fs to / \n");
+	if (mount(rootdev, "/", rootfs, rootflags, rootopts) != 0) {
+		uk_pr_crit("Failed to mount %s (%s) at /\n", rootdev, rootfs);
+		return -1;
+	}
+
+	return 0;
+}
+
 void ushell_spawn_shell()
 {
 	int rc;
 	char buf[BUFSIZE];
 
 	uk_pr_info("ushell spawn\n");
+
+	rc = ushell_mount();
+
+	if (rc < 0) {
+		return;
+	}
 
 	while (1) {
 		ushell_print_prompt();
