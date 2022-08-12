@@ -35,9 +35,21 @@ static void ushell_gets(char *buf, unsigned size)
 	buf[i] = '\0';
 }
 
+char *strip_str(char *str)
+{
+	char *p = str;
+	while (*p != '\0' && *p == ' ') {
+		p++;
+	}
+	return p;
+}
+
 int ushell_process_cmd(char *cmd)
 {
-	if (!strcmp(cmd, "quit")) {
+	cmd = strip_str(cmd);
+	if (*cmd == '\0') {
+		return 0;
+	} else if (!strcmp(cmd, "quit")) {
 		uk_console_puts("bye\n", 4);
 		return 1;
 	} else {
