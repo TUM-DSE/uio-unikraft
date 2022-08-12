@@ -121,10 +121,9 @@ config VIRTIO_PCI
 
 config VIRTIO_MMIO
        bool "Virtio MMIO device support"
-       default y if (VIRTIO_CONSOLE)
        default n
+       depends on ((PAGING && ARCH_X86_64) || ARCH_ARM_64)
        select VIRTIO_BUS
-       select PAGING if ARCH_X86_64
        help
                Support virtio devices on MMIO transport
 
