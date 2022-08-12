@@ -9,9 +9,20 @@
 
 #define BUFSIZE 128
 
+static void ushell_puts_n(char *str, size_t len)
+{
+	uk_console_puts(str, len);
+}
+
+static void ushell_puts(char *str)
+{
+	size_t len = strlen(str);
+	ushell_puts_n(str, len);
+}
+
 static void ushell_print_prompt()
 {
-	uk_console_puts("> ", 2);
+	ushell_puts("> ");
 }
 
 static void ushell_gets(char *buf, unsigned size)
@@ -50,10 +61,10 @@ int ushell_process_cmd(char *cmd)
 	if (*cmd == '\0') {
 		return 0;
 	} else if (!strcmp(cmd, "quit")) {
-		uk_console_puts("bye\n", 4);
+		ushell_puts("bye\n");
 		return 1;
 	} else {
-		uk_pr_info("ushell: unknown command: %s\n", cmd);
+		ushell_puts("Error: unknown command\n");
 	}
 	return 0;
 }
