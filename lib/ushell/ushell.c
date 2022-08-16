@@ -1,3 +1,4 @@
+#include "uk/plat/paging.h"
 #include <uk/assert.h>
 #include <uk/console.h>
 #include <uk/print.h>
@@ -133,7 +134,8 @@ static void ushell_run(int argc, char *argv[])
 	size = ftell(fp);
 	fseek(fp, 0, SEEK_SET);
 
-	// mmap
+// #define USE_MMAP
+#ifdef USE_MMAP
 	code = mmap(NULL, size, PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANON,
 		    -1, 0);
 	if (code == MAP_FAILED || code == 0) {
@@ -142,6 +144,15 @@ static void ushell_run(int argc, char *argv[])
 		return;
 	}
 	uk_pr_info("ushell: mmap addr=%#lx\n", (long)code);
+#else
+	struct uk_pagetable *pt = ukplat_pt_get_active();
+	// FIXME: find proper vaddr
+	code = (void *)0x80000000;
+	int rc = ukplat_page_map(pt, (long long)code, __PADDR_ANY,
+				 (size + PAGE_SIZE) / PAGE_SIZE,
+				 PAGE_ATTR_PROT_WRITE | PAGE_ATTR_PROT_EXEC, 0);
+	UK_ASSERT(rc == 0);
+#endif
 
 	fread(code, size, 1, fp);
 	fclose(fp);
@@ -158,7 +169,9 @@ static void ushell_run(int argc, char *argv[])
 		ushell_puts(buf);
 	}
 
+#ifdef _USE_MMAP
 	munmap(code, size);
+#endif
 }
 
 #endif /* CONFIG_HAVE_LIBC */
