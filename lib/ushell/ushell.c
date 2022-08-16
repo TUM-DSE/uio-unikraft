@@ -1,6 +1,7 @@
 #include <uk/assert.h>
 #include <uk/console.h>
 #include <uk/print.h>
+#include <uk/hexdump.h>
 #include <vfscore/mount.h>
 
 #include <ushell/ushell.h>
@@ -82,6 +83,8 @@ static void ushell_listdir(int argc, char *argv[])
 	}
 	closedir(dp);
 }
+
+#ifdef CONFIG_HAVE_LIBC
 static void ushell_cat(int argc, char *argv[])
 {
 	FILE *fp;
@@ -103,6 +106,63 @@ static void ushell_cat(int argc, char *argv[])
 	fclose(fp);
 }
 
+#include <sys/mman.h>
+
+static void ushell_run(int argc, char *argv[])
+{
+	FILE *fp;
+	char buf[128];
+	char *cmd;
+	void *code;
+	int r;
+	long size;
+	UK_ASSERT(argc >= 0);
+	if (argc == 0 || argv[0][0] == '\0') {
+		ushell_puts("Usage: run <cmd> [args]\n");
+		return;
+	}
+	cmd = argv[0];
+
+	// open file
+	fp = fopen(cmd, "rt");
+	if (fp == NULL) {
+		snprintf(buf, sizeof(buf), "Error opening file %s", argv[1]);
+		ushell_puts(buf);
+	}
+	fseek(fp, 0, SEEK_END);
+	size = ftell(fp);
+	fseek(fp, 0, SEEK_SET);
+
+	// mmap
+	code = mmap(NULL, size, PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANON,
+		    -1, 0);
+	if (code == MAP_FAILED || code == 0) {
+		uk_pr_info("ushell: mmap failed: code=%ld\n", (long)code);
+		ushell_puts("Failed to run command\n");
+		return;
+	}
+	uk_pr_info("ushell: mmap addr=%#lx\n", (long)code);
+
+	fread(code, size, 1, fp);
+	fclose(fp);
+	uk_pr_info("ushell: load\n");
+	uk_hexdumpC(code, size);
+
+	// run
+	{
+		int (*func)() = code;
+		r = func();
+		// int (*func)(int, int) = code;
+		// r = func(10, 2);
+		snprintf(buf, sizeof(buf), "%d\n", r);
+		ushell_puts(buf);
+	}
+
+	munmap(code, size);
+}
+
+#endif /* CONFIG_HAVE_LIBC */
+
 static int ushell_process_cmd(int argc, char *argv[])
 {
 	UK_ASSERT(argc >= 1);
@@ -111,8 +171,12 @@ static int ushell_process_cmd(int argc, char *argv[])
 		return 0;
 	} else if (!strcmp(cmd, "ls")) {
 		ushell_listdir(argc, argv);
+#ifdef CONFIG_HAVE_LIBC
+	} else if (!strcmp(cmd, "run")) {
+		ushell_run(argc - 1, argv + 1);
 	} else if (!strcmp(cmd, "cat")) {
 		ushell_cat(argc, argv);
+#endif
 	} else if (!strcmp(cmd, "quit")) {
 		ushell_puts("bye\n");
 		return 1;
