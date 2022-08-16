@@ -116,7 +116,7 @@ static void ushell_run(int argc, char *argv[])
 	char *cmd;
 	void *code;
 	int r;
-	long size;
+	unsigned size, pages;
 	UK_ASSERT(argc >= 0);
 	if (argc == 0 || argv[0][0] == '\0') {
 		ushell_puts("Usage: run <cmd> [args]\n");
@@ -132,6 +132,7 @@ static void ushell_run(int argc, char *argv[])
 	}
 	fseek(fp, 0, SEEK_END);
 	size = ftell(fp);
+	pages = (size + PAGE_SIZE) / PAGE_SIZE;
 	fseek(fp, 0, SEEK_SET);
 
 // #define USE_MMAP
@@ -148,8 +149,7 @@ static void ushell_run(int argc, char *argv[])
 	struct uk_pagetable *pt = ukplat_pt_get_active();
 	// FIXME: find proper vaddr
 	code = (void *)0x80000000;
-	int rc = ukplat_page_map(pt, (long long)code, __PADDR_ANY,
-				 (size + PAGE_SIZE) / PAGE_SIZE,
+	int rc = ukplat_page_map(pt, (long long)code, __PADDR_ANY, pages,
 				 PAGE_ATTR_PROT_WRITE | PAGE_ATTR_PROT_EXEC, 0);
 	UK_ASSERT(rc == 0);
 #endif
@@ -157,20 +157,22 @@ static void ushell_run(int argc, char *argv[])
 	fread(code, size, 1, fp);
 	fclose(fp);
 	uk_pr_info("ushell: load\n");
+#if 0
 	uk_hexdumpC(code, size);
+#endif
 
 	// run
 	{
-		int (*func)() = code;
-		r = func();
-		// int (*func)(int, int) = code;
-		// r = func(10, 2);
+		int (*func)(int, char *[]) = code;
+		r = func(argc, argv);
 		snprintf(buf, sizeof(buf), "%d\n", r);
 		ushell_puts(buf);
 	}
 
 #ifdef _USE_MMAP
 	munmap(code, size);
+#else
+	ukplat_page_unmap(pt, (long long)code, pages, 0);
 #endif
 }
 
