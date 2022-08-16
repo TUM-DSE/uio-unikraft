@@ -97,6 +97,9 @@ void do_page_fault(struct __regs *regs, unsigned long error_code)
 	if (uk_raise_event(UKARCH_TRAP_PAGE_FAULT, &ctx))
 		return;
 
+	uk_pr_crit("page fault at %#016lx, error_code=%#016lx\n", vaddr,
+		   error_code);
+
 	dump_regs(regs);
 #if !__OMIT_FRAMEPOINTER__
 	stack_walk_for_frame(regs->rbp);
