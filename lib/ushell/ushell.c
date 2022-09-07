@@ -6,11 +6,56 @@
 #include <vfscore/mount.h>
 
 #include <ushell/ushell.h>
+#include "ushell_api.h"
 
 #include <string.h>
 #include <stdio.h>
 
 #define BUFSIZE 128
+
+//-------------------------------------
+// ushel API
+
+// #define _USE_MMAP // use mmap()
+
+void *ushell_alloc_memory(unsigned long size)
+{
+	void *addr = NULL;
+	unsigned pages = (size + PAGE_SIZE) / PAGE_SIZE;
+
+#ifdef _USE_MMAP
+	addr = mmap(NULL, size, PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANON,
+		    -1, 0);
+	if (code == MAP_FAILED || code == 0) {
+		uk_pr_info("ushell: mmap failed: code=%ld\n", (long)code);
+		ushell_puts("Failed to run command\n");
+		return;
+	}
+#else
+	struct uk_pagetable *pt = ukplat_pt_get_active();
+	// FIXME: find proper vaddr
+	addr = (void *)0x80000000;
+	int rc = ukplat_page_map(pt, (long long)addr, __PADDR_ANY, pages,
+				 PAGE_ATTR_PROT_WRITE | PAGE_ATTR_PROT_EXEC, 0);
+	UK_ASSERT(rc == 0);
+#endif
+	UK_ASSERT(addr);
+	return addr;
+}
+
+void ushell_free_memory(void *addr, unsigned long size)
+{
+	unsigned pages = (size + PAGE_SIZE) / PAGE_SIZE;
+
+#ifdef _USE_MMAP
+	munmap(code, size);
+#else
+	struct uk_pagetable *pt = ukplat_pt_get_active();
+	ukplat_page_unmap(pt, (long long)addr, pages, 0);
+#endif
+}
+
+//-------------------------------------
 
 static void ushell_puts_n(char *str, size_t len)
 {
@@ -116,7 +161,7 @@ static void ushell_run(int argc, char *argv[])
 	char *cmd;
 	void *code;
 	int r;
-	unsigned size, pages;
+	unsigned size;
 	UK_ASSERT(argc >= 0);
 	if (argc == 0 || argv[0][0] == '\0') {
 		ushell_puts("Usage: run <cmd> [args]\n");
@@ -132,48 +177,25 @@ static void ushell_run(int argc, char *argv[])
 	}
 	fseek(fp, 0, SEEK_END);
 	size = ftell(fp);
-	pages = (size + PAGE_SIZE) / PAGE_SIZE;
 	fseek(fp, 0, SEEK_SET);
 
-// #define USE_MMAP
-#ifdef USE_MMAP
-	code = mmap(NULL, size, PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANON,
-		    -1, 0);
-	if (code == MAP_FAILED || code == 0) {
-		uk_pr_info("ushell: mmap failed: code=%ld\n", (long)code);
-		ushell_puts("Failed to run command\n");
-		return;
-	}
-	uk_pr_info("ushell: mmap addr=%#lx\n", (long)code);
-#else
-	struct uk_pagetable *pt = ukplat_pt_get_active();
-	// FIXME: find proper vaddr
-	code = (void *)0x80000000;
-	int rc = ukplat_page_map(pt, (long long)code, __PADDR_ANY, pages,
-				 PAGE_ATTR_PROT_WRITE | PAGE_ATTR_PROT_EXEC, 0);
-	UK_ASSERT(rc == 0);
-#endif
+	code = ushell_alloc_memory(size);
 
 	fread(code, size, 1, fp);
 	fclose(fp);
 	uk_pr_info("ushell: load\n");
+
 #if 0
 	uk_hexdumpC(code, size);
 #endif
 
 	// run
-	{
-		int (*func)(int, char *[]) = code;
-		r = func(argc, argv);
-		snprintf(buf, sizeof(buf), "%d\n", r);
-		ushell_puts(buf);
-	}
+	int (*func)(int, char *[]) = code;
+	r = func(argc, argv);
+	snprintf(buf, sizeof(buf), "%d\n", r);
+	ushell_puts(buf);
 
-#ifdef _USE_MMAP
-	munmap(code, size);
-#else
-	ukplat_page_unmap(pt, (long long)code, pages, 0);
-#endif
+	ushell_free_memory(code, size);
 }
 
 #endif /* CONFIG_HAVE_LIBC */
