@@ -100,6 +100,25 @@ ENTRY(cpu_irq_\irqno)
 	POP_CALLER_SAVE
 	addq $8, %rsp
 
+	/* redirect to trampoline */
+	pushf
+	movq %rax, ushell_original_rax
+	movq ushell_in_shell_context, %rax
+	cmpq $1, %rax
+	je 1f
+	popf
+	movq $1, ushell_in_shell_context
+	popq %rax
+	movq %rax, ushell_original_rip
+	leaq ushell_start(%rip), %rax
+	pushq %rax
+	movq ushell_original_rax, %rax
+	jmp 2f
+1:
+	movq ushell_original_rax, %rax
+	popf
+2:
+
 	iretq
 .endm
 

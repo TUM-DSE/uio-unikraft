@@ -1,1 +1,7 @@
 ushell_spawn_shell
+ushell_main_thread
+ushell_start
+
+ushell_original_rax
+ushell_original_rip
+ushell_in_shell_context

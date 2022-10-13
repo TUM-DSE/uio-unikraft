@@ -13,6 +13,10 @@
 
 #define BUFSIZE 128
 
+__u64 ushell_in_shell_context;
+__u64 ushell_original_rax;
+__u64 ushell_original_rip;
+
 //-------------------------------------
 // ushel API
 
@@ -288,4 +292,11 @@ void ushell_spawn_shell()
 			break;
 		}
 	}
+}
+
+void ushell_main_thread()
+{
+	uk_pr_info("ushell main thread\n");
+	// ushell_resume();
+	return;
 }
