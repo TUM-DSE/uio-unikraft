@@ -219,11 +219,22 @@ static int ushell_process_cmd(int argc, char *argv[])
 	} else if (!strcmp(cmd, "cat")) {
 		ushell_cat(argc, argv);
 #endif
+#ifdef CONFIG_APPCOUNT
+	} else if (!strcmp(cmd, "set_count")) {
+		void set_count(int);
+		int n = 0;
+		if (argc >= 2) {
+			n = atoi(argv[1]);
+		}
+		set_count(n);
+#endif
 	} else if (!strcmp(cmd, "quit")) {
 		ushell_puts("bye\n");
 		return 1;
 	} else {
-		ushell_puts("Error: unknown command\n");
+		ushell_puts("Error: unknown command: ");
+		ushell_puts(cmd);
+		ushell_puts("\n");
 	}
 	return 0;
 }
