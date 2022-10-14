@@ -25,6 +25,7 @@
 /* Taken from solo5 */
 
 #include <x86/traps.h>
+#include <uk/config.h>
 
 #define ENTRY(X)     .global X ; .type X, @function ; X:
 
@@ -100,9 +101,14 @@ ENTRY(cpu_irq_\irqno)
 	POP_CALLER_SAVE
 	addq $8, %rsp
 
+#ifdef CONFIG_LIBUSHELL
 	/* redirect to trampoline */
 	pushf
 	movq %rax, ushell_original_rax
+	movq ushell_interrupt, %rax
+	cmpq $0, %rax
+	je 1f
+	movq $0, ushell_interrupt
 	movq ushell_in_shell_context, %rax
 	cmpq $1, %rax
 	je 1f
@@ -118,6 +124,7 @@ ENTRY(cpu_irq_\irqno)
 	movq ushell_original_rax, %rax
 	popf
 2:
+#endif
 
 	iretq
 .endm

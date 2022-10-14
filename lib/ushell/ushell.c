@@ -13,6 +13,7 @@
 
 #define BUFSIZE 128
 
+__u64 ushell_interrupt;
 __u64 ushell_in_shell_context;
 __u64 ushell_original_rax;
 __u64 ushell_original_rip;

@@ -10,6 +10,10 @@
 #include <virtio/virtio_console.h>
 #include <uk/console.h>
 
+#ifdef CONFIG_LIBUSHELL
+extern __u64 ushell_interrupt;
+#endif
+
 #define DRIVER_NAME "virtio-console"
 static struct uk_alloc *a;
 
@@ -98,6 +102,12 @@ static int virtio_console_recv(struct virtqueue *vq, void *priv)
 			  ": Failed to add a buffer to receive queue\n");
 	}
 	handled = 1;
+
+#ifdef CONFIG_LIBUSHELL
+	/* TODO: do this only when this device is for ushell */
+	uk_pr_info("ushell virtio interrupt\n");
+	ushell_interrupt = 1;
+#endif
 
 	return handled;
 }

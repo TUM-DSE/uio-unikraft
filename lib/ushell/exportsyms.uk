@@ -5,3 +5,4 @@ ushell_start
 ushell_original_rax
 ushell_original_rip
 ushell_in_shell_context
+ushell_interrupt
