@@ -230,16 +230,22 @@ static int ushell_process_cmd(int argc, char *argv[])
 
 static int ushell_mount()
 {
+	static int mounted = 0;
 	const char *rootdev = "fs0";
 	const char *rootfs = "9pfs";
 	int rootflags = 0;
 	const char *rootopts = "";
+
+	if (mounted) {
+		return 0;
+	}
 
 	uk_pr_info("ushell: mount fs to / \n");
 	if (mount(rootdev, "/", rootfs, rootflags, rootopts) != 0) {
 		uk_pr_crit("Failed to mount %s (%s) at /\n", rootdev, rootfs);
 		return -1;
 	}
+	mounted = 1;
 
 	return 0;
 }
@@ -270,16 +276,15 @@ static int ushell_split_args(char *buf, char *args[])
 	return i;
 }
 
-void ushell_spawn_shell()
+void ushell_main_thread()
 {
 	int argc, rc;
 	char buf[BUFSIZE];
 	char *argv[USHELL_MAX_ARGS];
 
-	uk_pr_info("ushell spawn\n");
+	uk_pr_info("ushell main thread started\n");
 
 	rc = ushell_mount();
-
 	if (rc < 0) {
 		return;
 	}
@@ -295,9 +300,3 @@ void ushell_spawn_shell()
 	}
 }
 
-void ushell_main_thread()
-{
-	uk_pr_info("ushell main thread\n");
-	// ushell_resume();
-	return;
-}
