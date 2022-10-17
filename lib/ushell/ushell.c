@@ -21,6 +21,7 @@ __u64 ushell_interrupt;
 __u64 ushell_in_shell_context;
 __u64 ushell_original_rax;
 __u64 ushell_original_rip;
+int ushell_mounted;
 
 //-------------------------------------
 // ushel API
@@ -118,6 +119,12 @@ static void ushell_listdir(int argc, char *argv[])
 	struct dirent *ent;
 	char buf[128];
 	char *path;
+
+	if (!ushell_mounted) {
+		ushell_puts("fs is not mounted\n");
+		return;
+	}
+
 	if (argc >= 2) {
 		path = argv[1];
 	} else {
@@ -254,22 +261,33 @@ static int ushell_process_cmd(int argc, char *argv[])
 
 static int ushell_mount()
 {
-	static int mounted = 0;
 	const char *rootdev = "fs0";
 	const char *rootfs = "9pfs";
 	int rootflags = 0;
+	char *path = "/ushell";
 	const char *rootopts = "";
 
-	if (mounted) {
+	if (ushell_mounted) {
 		return 0;
 	}
 
-	uk_pr_info("ushell: mount fs to / \n");
-	if (mount(rootdev, "/", rootfs, rootflags, rootopts) != 0) {
-		uk_pr_crit("Failed to mount %s (%s) at /\n", rootdev, rootfs);
+#if 1
+	int ret = mkdir(path, S_IRWXU);
+	if (ret != 0 && errno != EEXIST) {
+		/* Root file system is not mounted. Therefore we will mount
+		 * ushell fs as a rootfs.
+		 */
+		path = "/";
+	}
+#endif
+
+	uk_pr_info("ushell: mount fs to %s\n", path);
+	if (mount(rootdev, path, rootfs, rootflags, rootopts) != 0) {
+		uk_pr_crit("Failed to mount %s (%s) at %s: errno=%d\n", rootdev,
+			   rootfs, path, errno);
 		return -1;
 	}
-	mounted = 1;
+	ushell_mounted = 1;
 
 	return 0;
 }
@@ -309,9 +327,11 @@ void ushell_main_thread()
 	uk_pr_info("ushell main thread started\n");
 
 	rc = ushell_mount();
+#if 0
 	if (rc < 0) {
 		return;
 	}
+#endif
 
 	while (1) {
 		ushell_print_prompt();
