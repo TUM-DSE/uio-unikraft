@@ -5,6 +5,10 @@
 #include <uk/hexdump.h>
 #include <vfscore/mount.h>
 
+#ifdef CONFIG_LIBUKSIGNAL
+#include <uk/uk_signal.h>
+#endif
+
 #include <ushell/ushell.h>
 #include "ushell_api.h"
 
@@ -218,6 +222,15 @@ static int ushell_process_cmd(int argc, char *argv[])
 		ushell_run(argc - 1, argv + 1);
 	} else if (!strcmp(cmd, "cat")) {
 		ushell_cat(argc, argv);
+#endif
+#ifdef CONFIG_LIBUKSIGNAL
+	} else if (!strcmp(cmd, "kill")) {
+		if (argc >= 2) {
+			int sig = atoi(argv[1]);
+			raise(sig);
+		} else {
+			ushell_puts("Usage: kill <num>\n");
+		}
 #endif
 #ifdef CONFIG_APPCOUNT
 	} else if (!strcmp(cmd, "set_count")) {
