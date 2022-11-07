@@ -43,11 +43,14 @@
 
 ENTRY(ushell_start)
 	PUSH_CALLER_SAVE
-	subq $__REGS_PAD_SIZE, %rsp
+	pushq %rbp
+	movq %rsp, %rbp
+	andq $-16, %rsp
 
 	call ushell_main_thread
 
-	addq $(__REGS_PAD_SIZE), %rsp
+	movq %rbp, %rsp
+	popq %rbp
 	POP_CALLER_SAVE
 
 	cli
