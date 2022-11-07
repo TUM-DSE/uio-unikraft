@@ -248,6 +248,12 @@ static int ushell_process_cmd(int argc, char *argv[])
 		}
 		set_count(n);
 #endif
+#ifdef CONFIG_LIBSQLITE
+	} else if (!strcmp(cmd, "sqlite3_save")) {
+		void sqlite3_save();
+		ushell_puts("sqlite3_save\n");
+		sqlite3_save();
+#endif
 	} else if (!strcmp(cmd, "quit")) {
 		ushell_puts("bye\n");
 		return 1;
