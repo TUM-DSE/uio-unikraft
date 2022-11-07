@@ -114,6 +114,7 @@ ENTRY(cpu_irq_\irqno)
 	je 1f
 	popf
 	movq $1, ushell_in_shell_context
+	/* overwrite the iret's return address  */
 	popq %rax
 	movq %rax, ushell_original_rip
 	leaq ushell_start(%rip), %rax
