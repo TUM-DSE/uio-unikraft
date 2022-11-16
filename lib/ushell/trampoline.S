@@ -53,9 +53,7 @@ ENTRY(ushell_start)
 	popq %rbp
 	POP_CALLER_SAVE
 
-	cli
 	movq $0, ushell_in_shell_context
-	sti
 
 	jmp *ushell_original_rip
 

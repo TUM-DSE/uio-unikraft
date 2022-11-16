@@ -128,6 +128,7 @@ int uk_thread_init(struct uk_thread *thread,
 void uk_thread_fini(struct uk_thread *thread,
 		struct uk_alloc *allocator);
 void uk_thread_block_timeout(struct uk_thread *thread, __nsec nsec);
+void uk_thread_block_until(struct uk_thread *thread, __snsec nsec);
 void uk_thread_block(struct uk_thread *thread);
 void uk_thread_wake(struct uk_thread *thread);
 

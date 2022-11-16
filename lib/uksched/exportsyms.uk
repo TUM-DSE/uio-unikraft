@@ -20,6 +20,7 @@ uk_thread_get_prio
 uk_thread_set_timeslice
 uk_thread_get_timeslice
 uk_thread_block_timeout
+uk_thread_block_until
 uk_thread_block
 uk_thread_wake
 uk_thread_attr_init

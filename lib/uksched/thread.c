@@ -211,7 +211,7 @@ void uk_thread_fini(struct uk_thread *thread, struct uk_alloc *allocator)
 	thread->ctx = NULL;
 }
 
-static void uk_thread_block_until(struct uk_thread *thread, __snsec until)
+void uk_thread_block_until(struct uk_thread *thread, __snsec until)
 {
 	unsigned long flags;
 

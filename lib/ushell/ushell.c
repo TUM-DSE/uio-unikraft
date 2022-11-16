@@ -332,6 +332,13 @@ void ushell_main_thread()
 
 	uk_pr_info("ushell main thread started\n");
 
+	/* Set the current thread runnable in case the main thread is sleeping
+	 */
+	struct uk_thread *current = uk_thread_current();
+	__snsec wakeup_time = current->wakeup_time;
+	int thread_runnable = is_runnable(current);
+	uk_thread_wake(current);
+
 	rc = ushell_mount();
 #if 0
 	if (rc < 0) {
@@ -347,6 +354,13 @@ void ushell_main_thread()
 		if (rc) {
 			break;
 		}
+	}
+
+	if (!thread_runnable && wakeup_time > 0) {
+		/* Original main thread was sleeping.
+		 * Resume sleeping.
+		 */
+		uk_thread_block_until(current, wakeup_time);
 	}
 }
 

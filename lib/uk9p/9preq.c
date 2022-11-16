@@ -186,12 +186,7 @@ int uk_9preq_waitreply(struct uk_9preq *req)
 	int rc;
 
 #if CONFIG_LIBUKSCHED
-#if CONFIG_LIBUSHELL
-	while (UK_READ_ONCE(req->state) != UK_9PREQ_RECEIVED)
-		;
-#else
 	uk_waitq_wait_event(&req->wq, req->state == UK_9PREQ_RECEIVED);
-#endif
 #else
 	while (UK_READ_ONCE(req->state) != UK_9PREQ_RECEIVED)
 		;
