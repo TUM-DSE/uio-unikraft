@@ -1,5 +1,6 @@
 menuconfig LIBUSHELL
 	bool "ushell"
 	default y
+	select HAVE_X86PKU
 	select LIBUKDEBUG
 	select LIBUKCONSOLE
