@@ -348,6 +348,7 @@ static inline void _check_ospke(void)
 		 * runtime. */
 		UK_CRASH("CPU does not support PKU!\n");
 	}
+	uk_pr_info("PKU is enabled\n");
 }
 #endif /* CONFIG_HAVE_X86PKU */
 
