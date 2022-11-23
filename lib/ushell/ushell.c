@@ -1,4 +1,5 @@
 #include "uk/plat/paging.h"
+#include "uk/thread.h"
 #include <uk/assert.h>
 #include <uk/console.h>
 #include <uk/print.h>
