@@ -102,7 +102,22 @@ ENTRY(cpu_irq_\irqno)
 	addq $8, %rsp
 
 #ifdef CONFIG_LIBUSHELL
-	/* redirect to trampoline */
+	/* redirect to trampoline if needed
+		// ushell_interupt is set in virtio-console's interrupt handler
+		if (ushell_interrupt) {
+			if (ushell_in_shell_context == 1) {
+				// we are already executing ushell. just returning where we
+				// receive the interrupt
+				iret
+			}
+			// move control to ushell's entry point
+			original_rip = iret's return address
+			iret's return address = ushell_start // defined in lib/ushell/trampoline.S
+			ushell_in_shell_context = 1
+			iret // go to ushell_start
+		}
+		iret // normal return
+	*/
 	pushf
 	movq %rax, ushell_original_rax
 	movq ushell_interrupt, %rax
@@ -115,6 +130,14 @@ ENTRY(cpu_irq_\irqno)
 	popf
 	movq $1, ushell_in_shell_context
 	/* overwrite the iret's return address  */
+	/* stack state (with no privilege-level change)
+		|            | <---- SP before transfer to handler
+		| EFLAGS     |
+		| CS         |
+		| RIP        | <---- SP
+		|            |
+		overwrite RIP by popping old value& pushing new value
+	*/
 	popq %rax
 	movq %rax, ushell_original_rip
 	leaq ushell_start(%rip), %rax
