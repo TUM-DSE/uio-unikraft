@@ -103,8 +103,9 @@ ENTRY(cpu_irq_\irqno)
 
 #ifdef CONFIG_LIBUSHELL
 	/* redirect to trampoline if needed
-		// ushell_interupt is set in virtio-console's interrupt handler
+		// ushell_interrupt is set in virtio-console's interrupt handler
 		if (ushell_interrupt) {
+			ushell_interrupt = 0
 			if (ushell_in_shell_context == 1) {
 				// we are already executing ushell. just returning where we
 				// receive the interrupt
@@ -136,7 +137,7 @@ ENTRY(cpu_irq_\irqno)
 		| CS         |
 		| RIP        | <---- SP
 		|            |
-		overwrite RIP by popping old value& pushing new value
+		overwrite RIP by popping old value & pushing new value
 	*/
 	popq %rax
 	movq %rax, ushell_original_rip
