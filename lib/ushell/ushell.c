@@ -1,10 +1,13 @@
 #include "uk/plat/paging.h"
-#include "uk/thread.h"
 #include <uk/assert.h>
 #include <uk/console.h>
 #include <uk/print.h>
 #include <uk/hexdump.h>
 #include <vfscore/mount.h>
+
+#if CONFIG_LIBUKSCHED
+#include "uk/thread.h"
+#endif
 
 #ifdef CONFIG_LIBUKSIGNAL
 #include <uk/uk_signal.h>
@@ -335,10 +338,12 @@ void ushell_main_thread()
 
 	/* Set the current thread runnable in case the main thread is sleeping
 	 */
+#if CONFIG_LIBUKSCHED
 	struct uk_thread *current = uk_thread_current();
 	__snsec wakeup_time = current->wakeup_time;
 	int thread_runnable = is_runnable(current);
 	uk_thread_wake(current);
+#endif
 
 	rc = ushell_mount();
 #if 0
@@ -357,11 +362,13 @@ void ushell_main_thread()
 		}
 	}
 
+#if CONFIG_LIBUKSCHED
 	if (!thread_runnable && wakeup_time > 0) {
 		/* Original main thread was sleeping.
 		 * Resume sleeping.
 		 */
 		uk_thread_block_until(current, wakeup_time);
 	}
+#endif
 }
 
