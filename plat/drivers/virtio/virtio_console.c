@@ -10,6 +10,11 @@
 #include <virtio/virtio_console.h>
 #include <uk/console.h>
 
+#if CONFIG_LIBUKSCHED
+#include <uk/sched.h>
+#include <uk/wait.h>
+#endif
+
 #ifdef CONFIG_LIBUSHELL
 extern __u64 ushell_interrupt;
 #endif
@@ -36,6 +41,9 @@ struct virtio_console_device {
 	int recv_buf_idx;
 	int recv_buf_head;
 	int interrupt_enabled;
+#if CONFIG_LIBUKSCHED
+	struct uk_waitq wq;
+#endif
 };
 
 #define to_virtiocdev(dev)                                                     \
@@ -107,6 +115,11 @@ static int virtio_console_recv(struct virtqueue *vq, void *priv)
 	/* TODO: do this only when this device is for ushell */
 	uk_pr_info("ushell virtio interrupt\n");
 	ushell_interrupt = 1;
+#endif
+
+#if CONFIG_LIBUKSCHED
+	/* Notify any waiting threads. */
+	uk_waitq_wake_up(&cdev->wq);
 #endif
 
 	return handled;
@@ -292,9 +305,14 @@ static char virtio_console_getc(struct uk_console_device *uk_cdev)
 
 	// if interrupt enabled, then wait for an interrupt
 	if (cdev->interrupt_enabled) {
+#if CONFIG_LIBUKSCHED
+		uk_waitq_wait_event(&cdev->wq,
+				    cdev->recv_buf_idx != cdev->recv_buf_head);
+#else
 		while (cdev->recv_buf_idx == cdev->recv_buf_head) {
 			ukarch_spinwait();
 		}
+#endif
 		rc = virtio_console_getc_from_buffer(cdev, &c);
 		UK_ASSERT(rc == 0);
 		return c;
@@ -399,6 +417,11 @@ static int virtio_console_add_dev(struct virtio_dev *vdev)
 		sizeof(vcdev->uk_cdev.name));
 	vcdev->uk_cdev.ops.getc = virtio_console_getc;
 	vcdev->uk_cdev.ops.putc = virtio_console_putc;
+
+#if CONFIG_LIBUKSCHED
+	uk_waitq_init(&vcdev->wq);
+#endif
+
 	uk_console_register_device(&vcdev->uk_cdev);
 
 out:
