@@ -87,7 +87,7 @@ static void ushell_print_prompt()
 	ushell_puts("> ");
 }
 
-static void ushell_gets(char *buf, unsigned size)
+static unsigned ushell_gets(char *buf, unsigned size)
 {
 	char ch;
 	unsigned i = 0;
@@ -106,6 +106,7 @@ static void ushell_gets(char *buf, unsigned size)
 		}
 	}
 	buf[i] = '\0';
+	return i;
 }
 
 char *strip_str(char *str)
@@ -352,9 +353,15 @@ void ushell_main_thread()
 	}
 #endif
 
+	/* To enter ushell, user need to send something (usually a new line)
+	 * to the virtio-console. Discard that input */
+	ushell_gets(&buf[0], BUFSIZE);
+
 	while (1) {
 		ushell_print_prompt();
-		ushell_gets(&buf[0], BUFSIZE);
+		unsigned i = ushell_gets(&buf[0], BUFSIZE);
+		if (i == 0)
+			continue;
 		argc = ushell_split_args(buf, argv);
 		rc = ushell_process_cmd(argc, argv);
 		if (rc) {
