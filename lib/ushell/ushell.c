@@ -337,9 +337,9 @@ void ushell_main_thread()
 
 	uk_pr_info("ushell main thread started\n");
 
+#if CONFIG_LIBUKSCHED
 	/* Set the current thread runnable in case the main thread is sleeping
 	 */
-#if CONFIG_LIBUKSCHED
 	struct uk_thread *current = uk_thread_current();
 	__snsec wakeup_time = current->wakeup_time;
 	int thread_runnable = is_runnable(current);
@@ -348,6 +348,8 @@ void ushell_main_thread()
 
 	rc = ushell_mount();
 #if 0
+	/* mount error. possibly the fs is already mounted   */
+	/* TODO: properly check if the fs is already mounted */
 	if (rc < 0) {
 		return;
 	}
