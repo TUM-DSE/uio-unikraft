@@ -113,7 +113,6 @@ static int virtio_console_recv(struct virtqueue *vq, void *priv)
 
 #ifdef CONFIG_LIBUSHELL
 	/* TODO: do this only when this device is for ushell */
-	uk_pr_info("ushell virtio interrupt\n");
 	ushell_interrupt = 1;
 #endif
 
