@@ -4,9 +4,11 @@
 #include <uk/print.h>
 #include <uk/hexdump.h>
 #include <vfscore/mount.h>
+#include <uk/init.h>
 
 #if CONFIG_LIBUKSCHED
 #include "uk/thread.h"
+#include "uk/sched.h"
 #endif
 
 #ifdef CONFIG_LIBUKSIGNAL
@@ -381,3 +383,75 @@ void ushell_main_thread()
 #endif
 }
 
+static void ushell_cons_thread(void *arg)
+{
+	//struct uk_console_events *ush_event = (struct uk_console_events *) arg;
+	int argc, rc;
+	char buf[BUFSIZE];
+	char *argv[USHELL_MAX_ARGS];
+
+	uk_pr_info("ushell main thread started\n");
+
+#if 0
+	for(;;)	{
+		uk_semaphore_down(&ush_event->events);
+		uk_pr_info("Got an event\n");
+	}
+#endif
+	rc = ushell_mount();
+#if 0
+	/* mount error. possibly the fs is already mounted   */
+	/* TODO: properly check if the fs is already mounted */
+	if (rc < 0) {
+		return;
+	}
+#endif
+
+	/* To enter ushell, user need to send something (usually a new line)
+	 * to the virtio-console. Discard that input */
+	//ushell_gets(&buf[0], BUFSIZE);
+
+	while (1) {
+		ushell_print_prompt();
+		unsigned i = ushell_gets(&buf[0], BUFSIZE);
+		if (i == 0)
+			continue;
+		argc = ushell_split_args(buf, argv);
+		rc = ushell_process_cmd(argc, argv);
+		if (rc) {
+			break;
+		}
+	}
+}
+
+static int ushell_init(void)
+{
+	struct uk_console_device *uk_cdev;
+	struct uk_console_events *ushell_event;
+
+	uk_cdev = uk_console_get_dev();
+	/*
+	 * This function is supposed to start after a console device
+	 * has been registered.
+	 */
+	UK_ASSERT(uk_cdev);
+
+	uk_pr_info("Attached ushell at %s\n", uk_cdev->name);
+
+	ushell_event = &uk_cdev->uk_cdev_evnt;
+	ushell_event->thr_s = uk_sched_get_default();
+	ushell_event->uk_cons_data.uk_cdev = uk_cdev;
+	uk_semaphore_init(&ushell_event->events, 0);
+	if (asprintf(&ushell_event->thr_name,
+				"ushell_consdev") < 0) {
+		ushell_event->thr_name = NULL;
+	}
+
+	ushell_event->thr = uk_sched_thread_create(ushell_event->thr_s,
+						ushell_event->thr_name, NULL,
+						ushell_cons_thread, ushell_event);
+
+	return 0;
+}
+
+uk_late_initcall(ushell_init);
