@@ -105,7 +105,6 @@ static int virtio_console_recv(struct virtqueue *vq, void *priv)
 			  ": Failed to add a buffer to receive queue\n");
 	}
 	handled = 1;
-	uk_pr_info("hello\n");
 
 #ifdef CONFIG_LIBUSHELL
 	/* TODO: do this only when this device is for ushell */
@@ -318,6 +317,7 @@ static int virtio_console_add_dev(struct virtio_dev *vdev)
 
 	uk_consd_ev_dt->recv_buf_idx = 0;
 	uk_consd_ev_dt->recv_buf_head = 0;
+	ukarch_spin_init(&(uk_consd_ev_dt->buf_cnts_slock));
 
 	vcdev->rxq = uk_calloc(a, 1, sizeof(*vcdev->rxq));
 	if (!vcdev) {

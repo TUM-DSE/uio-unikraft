@@ -3,20 +3,35 @@
 #include <uk/console.h>
 #include <uk/essentials.h>
 #include <uk/print.h>
+#include <uk/plat/spinlock.h>
 
 struct uk_console_device *dev = NULL;
 
 static int virtio_console_getc_from_buffer(struct uk_console_data *cdata,
 					   char *c)
 {
+	unsigned long flags;
+	uint64_t tmp_buf_idx, tmp_buf_head;
+
 	UK_ASSERT(cdata);
 
-	if (cdata->recv_buf_idx == cdata->recv_buf_head) {
+	/*
+	 * Grab the values fast and release the lock
+	 * We might not need to change tmp_buf_idx
+	 */
+	ukplat_spin_lock_irqsave(&(cdata->buf_cnts_slock), flags);
+	tmp_buf_idx = cdata->recv_buf_idx;
+	tmp_buf_head = cdata->recv_buf_head;
+	ukplat_spin_unlock_irqrestore(&(cdata->buf_cnts_slock), flags);
+
+	if (tmp_buf_idx == tmp_buf_head) {
 		// no data
 		return -1;
 	}
-	*c = cdata->recv_buf[cdata->recv_buf_idx];
+	*c = cdata->recv_buf[tmp_buf_idx];
+	ukplat_spin_lock_irqsave(&(cdata->buf_cnts_slock), flags);
 	cdata->recv_buf_idx = (cdata->recv_buf_idx + 1) % RECV_BUF_SIZE;
+	ukplat_spin_unlock_irqrestore(&(cdata->buf_cnts_slock), flags);
 	return 0;
 }
 
@@ -32,11 +47,9 @@ static char virtio_console_getc(struct uk_console_device *uk_cdev)
 		// return char if any in the buffer
 		rc = virtio_console_getc_from_buffer(&ev_cons->uk_cons_data, &c);
 		if (rc == -1) {
-			uk_pr_info("waiting..\n");
 			uk_semaphore_down(&ev_cons->events);
 			continue;
 		}
-		uk_pr_info("back on.. got %c\n", c);
 		return c;
 	}
 }
@@ -90,7 +103,7 @@ char uk_console_getc()
 int uk_cons_put_buffer(struct uk_console_device *cdev,
 			char (*buf)[QBUF_SIZE], int len)
 {
-	int i;
+	int i, flags;
 	struct uk_console_events *cdev_evnt = &(dev->uk_cdev_evnt);
 	struct uk_console_data *cons_data = &(cdev_evnt->uk_cons_data);
 
@@ -98,10 +111,12 @@ int uk_cons_put_buffer(struct uk_console_device *cdev,
 	UK_ASSERT(cdev_evnt);
 	UK_ASSERT(cons_data);
 
+	ukplat_spin_lock_irqsave(&(cons_data->buf_cnts_slock), flags);
 	for (i = 0; i < len; i++) {
 		if ((cons_data->recv_buf_head + 1) % RECV_BUF_SIZE
 		    == cons_data->recv_buf_idx) {
 			uk_pr_err("Unikraft console: recv buffer full\n");
+			ukplat_spin_unlock_irqrestore(&(cons_data->buf_cnts_slock), flags);
 			return -1;
 		} else {
 			cons_data->recv_buf[cons_data->recv_buf_head] = (*buf)[i];
@@ -109,6 +124,7 @@ int uk_cons_put_buffer(struct uk_console_device *cdev,
 			    (cons_data->recv_buf_head + 1) % RECV_BUF_SIZE;
 		}
 	}
+	ukplat_spin_unlock_irqrestore(&(cons_data->buf_cnts_slock), flags);
 	uk_semaphore_up(&cdev_evnt->events);
 	return 0;
 }

@@ -2,6 +2,7 @@
 #define __UK_CONSOLE__
 
 #include <uk/semaphore.h>
+#include <uk/arch/spinlock.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -18,8 +19,9 @@ typedef void (*uk_console_putc_t)(struct uk_console_device *, char);
 struct uk_console_data {
 	struct uk_console_device *uk_cdev;
 	char			 recv_buf[RECV_BUF_SIZE];
-	int 			 recv_buf_idx;
-	int 			 recv_buf_head;
+	uint64_t		 recv_buf_idx;
+	uint64_t		 recv_buf_head;
+	__spinlock		 buf_cnts_slock;
 };
 
 struct uk_console_events {
