@@ -4,11 +4,12 @@
 #include <uk/essentials.h>
 #include <uk/print.h>
 #include <uk/plat/spinlock.h>
+#include <string.h>
 
 struct uk_console_device *dev = NULL;
 
-static int virtio_console_getc_from_buffer(struct uk_console_data *cdata,
-					   char *c)
+static int console_get_buffer(struct uk_console_data *cdata,
+					   char **buffer)
 {
 	unsigned long flags;
 	uint64_t tmp_buf_idx, tmp_buf_head;
@@ -28,30 +29,11 @@ static int virtio_console_getc_from_buffer(struct uk_console_data *cdata,
 		// no data
 		return -1;
 	}
-	*c = cdata->recv_buf[tmp_buf_idx];
+	*buffer = cdata->recv_buf[tmp_buf_idx];
 	ukplat_spin_lock_irqsave(&(cdata->buf_cnts_slock), flags);
 	cdata->recv_buf_idx = (cdata->recv_buf_idx + 1) % RECV_BUF_SIZE;
 	ukplat_spin_unlock_irqrestore(&(cdata->buf_cnts_slock), flags);
 	return 0;
-}
-
-static char virtio_console_getc(struct uk_console_device *uk_cdev)
-{
-	char c;
-	int rc = 0;
-	struct uk_console_events *ev_cons = &(uk_cdev->uk_cdev_evnt);
-
-	UK_ASSERT(ev_cons);
-
-	for (;;) {
-		// return char if any in the buffer
-		rc = virtio_console_getc_from_buffer(&ev_cons->uk_cons_data, &c);
-		if (rc == -1) {
-			uk_semaphore_down(&ev_cons->events);
-			continue;
-		}
-		return c;
-	}
 }
 
 struct uk_console_device *uk_console_get_dev()
@@ -91,41 +73,56 @@ void uk_console_puts(char *str, int len)
 	}
 }
 
-char uk_console_getc()
+char *uk_console_get_buf()
 {
-	UK_ASSERT(dev);
-	//UK_ASSERT(dev->ops.getc);
+	char *buf = NULL;
+	int rc = 0;
+	struct uk_console_events *ev_cons;
 
-	//return dev->ops.getc(dev);
-	return virtio_console_getc(dev);
+	UK_ASSERT(dev);
+	ev_cons = &(dev->uk_cdev_evnt);
+	UK_ASSERT(ev_cons);
+
+	for (;;) {
+		// Get stored buffer
+		rc = console_get_buffer(&ev_cons->uk_cons_data, &buf);
+		if (rc == -1) {
+			uk_semaphore_down(&ev_cons->events);
+			continue;
+		}
+		return buf;
+	}
+	return buf;
 }
 
 int uk_cons_put_buffer(struct uk_console_device *cdev,
-			char (*buf)[QBUF_SIZE], int len)
+			char *buf, int len)
 {
-	int i, flags;
+	int flags;
 	struct uk_console_events *cdev_evnt = &(dev->uk_cdev_evnt);
 	struct uk_console_data *cons_data = &(cdev_evnt->uk_cons_data);
 
 	UK_ASSERT(cdev);
 	UK_ASSERT(cdev_evnt);
 	UK_ASSERT(cons_data);
+	UK_ASSERT(buf);
 
+	if (len > QBUF_SIZE) {
+		uk_pr_err("Too big incoming virtio console buffer\n");
+		return -1;
+	}
 	ukplat_spin_lock_irqsave(&(cons_data->buf_cnts_slock), flags);
-	for (i = 0; i < len; i++) {
-		if ((cons_data->recv_buf_head + 1) % RECV_BUF_SIZE
-		    == cons_data->recv_buf_idx) {
-			uk_pr_err("Unikraft console: recv buffer full\n");
-			ukplat_spin_unlock_irqrestore(&(cons_data->buf_cnts_slock), flags);
-			return -1;
-		} else {
-			cons_data->recv_buf[cons_data->recv_buf_head] = (*buf)[i];
-			cons_data->recv_buf_head =
-			    (cons_data->recv_buf_head + 1) % RECV_BUF_SIZE;
-		}
+	if ((cons_data->recv_buf_head + 1) % RECV_BUF_SIZE
+	    == cons_data->recv_buf_idx) {
+		uk_pr_err("Unikraft console: recv buffer full\n");
+		ukplat_spin_unlock_irqrestore(&(cons_data->buf_cnts_slock), flags);
+		return -1;
+	} else {
+		memcpy(cons_data->recv_buf[cons_data->recv_buf_head], buf, len);
+		cons_data->recv_buf_head =
+		    (cons_data->recv_buf_head + 1) % RECV_BUF_SIZE;
 	}
 	ukplat_spin_unlock_irqrestore(&(cons_data->buf_cnts_slock), flags);
 	uk_semaphore_up(&cdev_evnt->events);
 	return 0;
 }
-

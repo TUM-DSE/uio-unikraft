@@ -21,8 +21,6 @@
 #include <string.h>
 #include <stdio.h>
 
-#define BUFSIZE 128
-
 int ushell_mounted;
 
 //-------------------------------------
@@ -83,28 +81,6 @@ static void ushell_puts(char *str)
 static void ushell_print_prompt()
 {
 	ushell_puts("> ");
-}
-
-static unsigned ushell_gets(char *buf, unsigned size)
-{
-	char ch;
-	unsigned i = 0;
-
-	while (1) {
-		ch = uk_console_getc();
-		buf[i] = ch;
-		if (ch == '\n' || ch == '\0') {
-			buf[i] = '\0'; // remove new line
-			break;
-		}
-		i++;
-		if (i == size - 1) {
-			uk_pr_err("ushell: buffer full\n");
-			break;
-		}
-	}
-	buf[i] = '\0';
-	return i;
 }
 
 char *strip_str(char *str)
@@ -329,19 +305,14 @@ static int ushell_split_args(char *buf, char *args[])
 
 static void ushell_cons_thread(void *arg)
 {
-	//struct uk_console_events *ush_event = (struct uk_console_events *) arg;
 	int argc, rc;
-	char buf[BUFSIZE];
+	char *buf;
 	char *argv[USHELL_MAX_ARGS];
+	struct uk_console_events *uevent = (struct uk_console_events *) arg;;
 
+	UK_ASSERT(uevent);
 	uk_pr_info("ushell main thread started\n");
 
-#if 0
-	for(;;)	{
-		uk_semaphore_down(&ush_event->events);
-		uk_pr_info("Got an event\n");
-	}
-#endif
 	rc = ushell_mount();
 #if 0
 	/* mount error. possibly the fs is already mounted   */
@@ -357,8 +328,8 @@ static void ushell_cons_thread(void *arg)
 
 	while (1) {
 		ushell_print_prompt();
-		unsigned i = ushell_gets(&buf[0], BUFSIZE);
-		if (i == 0)
+		buf = uk_console_get_buf();
+		if (buf == NULL)
 			continue;
 		argc = ushell_split_args(buf, argv);
 		rc = ushell_process_cmd(argc, argv);

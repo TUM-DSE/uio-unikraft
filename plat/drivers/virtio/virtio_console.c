@@ -46,7 +46,7 @@ struct virtio_console_device {
 
 static int virtio_console_rxq_enqueue(struct virtio_console_device *d);
 static int virtio_console_rxq_dequeue(struct virtio_console_device *d,
-				      char (**buf)[QBUF_SIZE]);
+				      char **buf);
 
 static int virtio_console_start(struct virtio_console_device *d)
 {
@@ -88,7 +88,8 @@ static int virtio_console_recv(struct virtqueue *vq, void *priv)
 	struct uk_console_device *uk_cons = &(cdev->uk_cdev);
 	int handled = 0;
 	int len, rc;
-	char(*buf)[QBUF_SIZE];
+	//char(*buf)[QBUF_SIZE];
+	char*buf;
 
 	UK_ASSERT(vq);
 	UK_ASSERT(cdev);
@@ -195,7 +196,7 @@ static int virtio_console_rxq_enqueue(struct virtio_console_device *d)
 }
 
 static int virtio_console_rxq_dequeue(struct virtio_console_device *d,
-				      char (**buf)[QBUF_SIZE])
+				      char **buf)
 {
 	int rc;
 	__u32 len;
@@ -317,6 +318,7 @@ static int virtio_console_add_dev(struct virtio_dev *vdev)
 
 	uk_consd_ev_dt->recv_buf_idx = 0;
 	uk_consd_ev_dt->recv_buf_head = 0;
+	memset(uk_consd_ev_dt->recv_buf, 0, RECV_BUF_SIZE*QBUF_SIZE);
 	ukarch_spin_init(&(uk_consd_ev_dt->buf_cnts_slock));
 
 	vcdev->rxq = uk_calloc(a, 1, sizeof(*vcdev->rxq));

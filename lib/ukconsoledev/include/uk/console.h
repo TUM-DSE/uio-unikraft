@@ -8,7 +8,7 @@
 extern "C" {
 #endif
 
-#define RECV_BUF_SIZE	1024
+#define RECV_BUF_SIZE	100
 #define QBUF_SIZE	128
 
 struct uk_console_device;
@@ -18,7 +18,7 @@ typedef void (*uk_console_putc_t)(struct uk_console_device *, char);
 
 struct uk_console_data {
 	struct uk_console_device *uk_cdev;
-	char			 recv_buf[RECV_BUF_SIZE];
+	char			 recv_buf[RECV_BUF_SIZE][QBUF_SIZE];
 	uint64_t		 recv_buf_idx;
 	uint64_t		 recv_buf_head;
 	__spinlock		 buf_cnts_slock;
@@ -48,9 +48,9 @@ struct uk_console_device *uk_console_get_dev();
 void uk_console_register_device(struct uk_console_device *);
 void uk_console_putc(char);
 void uk_console_puts(char *, int);
-char uk_console_getc();
+char *uk_console_get_buf();
 int uk_cons_put_buffer(struct uk_console_device *cdev,
-			char (*buf)[QBUF_SIZE], int len);
+			char *buf, int len);
 
 #ifdef __cplusplus
 }
