@@ -23,10 +23,6 @@
 
 #define BUFSIZE 128
 
-__u64 ushell_interrupt;
-__u64 ushell_in_shell_context;
-__u64 ushell_original_rax;
-__u64 ushell_original_rip;
 int ushell_mounted;
 
 //-------------------------------------
@@ -329,58 +325,6 @@ static int ushell_split_args(char *buf, char *args[])
 		}
 	}
 	return i;
-}
-
-void ushell_main_thread()
-{
-	int argc, rc;
-	char buf[BUFSIZE];
-	char *argv[USHELL_MAX_ARGS];
-
-	uk_pr_info("ushell main thread started\n");
-
-#if CONFIG_LIBUKSCHED
-	/* Set the current thread runnable in case the main thread is sleeping
-	 */
-	struct uk_thread *current = uk_thread_current();
-	__snsec wakeup_time = current->wakeup_time;
-	int thread_runnable = is_runnable(current);
-	uk_thread_wake(current);
-#endif
-
-	rc = ushell_mount();
-#if 0
-	/* mount error. possibly the fs is already mounted   */
-	/* TODO: properly check if the fs is already mounted */
-	if (rc < 0) {
-		return;
-	}
-#endif
-
-	/* To enter ushell, user need to send something (usually a new line)
-	 * to the virtio-console. Discard that input */
-	ushell_gets(&buf[0], BUFSIZE);
-
-	while (1) {
-		ushell_print_prompt();
-		unsigned i = ushell_gets(&buf[0], BUFSIZE);
-		if (i == 0)
-			continue;
-		argc = ushell_split_args(buf, argv);
-		rc = ushell_process_cmd(argc, argv);
-		if (rc) {
-			break;
-		}
-	}
-
-#if CONFIG_LIBUKSCHED
-	if (!thread_runnable && wakeup_time > 0) {
-		/* Original main thread was sleeping.
-		 * Resume sleeping.
-		 */
-		uk_thread_block_until(current, wakeup_time);
-	}
-#endif
 }
 
 static void ushell_cons_thread(void *arg)

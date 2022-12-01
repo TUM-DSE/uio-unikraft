@@ -25,7 +25,6 @@
 /* Taken from solo5 */
 
 #include <x86/traps.h>
-#include <uk/config.h>
 
 #define ENTRY(X)     .global X ; .type X, @function ; X:
 
@@ -100,56 +99,6 @@ ENTRY(cpu_irq_\irqno)
 	addq $__REGS_PAD_SIZE, %rsp         /* we have some padding */
 	POP_CALLER_SAVE
 	addq $8, %rsp
-
-#ifdef CONFIG_LIBUSHELL
-	/* redirect to trampoline if needed
-		// ushell_interrupt is set in virtio-console's interrupt handler
-		if (ushell_interrupt) {
-			ushell_interrupt = 0
-			if (ushell_in_shell_context == 1) {
-				// we are already executing ushell. just returning where we
-				// receive the interrupt
-				iret
-			}
-			// move control to ushell's entry point
-			original_rip = iret's return address
-			iret's return address = ushell_start // defined in lib/ushell/trampoline.S
-			ushell_in_shell_context = 1
-			iret // go to ushell_start
-		}
-		iret // normal return
-	*/
-	pushf
-	movq %rax, ushell_original_rax
-	movq ushell_interrupt, %rax
-	cmpq $0, %rax
-	je 1f
-	movq $0, ushell_interrupt
-	movq ushell_in_shell_context, %rax
-	cmpq $1, %rax
-	je 1f
-	popf
-	movq $1, ushell_in_shell_context
-	/* overwrite the iret's return address  */
-	/* stack state (with no privilege-level change)
-		|            | <---- SP before transfer to handler
-		| EFLAGS     |
-		| CS         |
-		| RIP        | <---- SP
-		|            |
-		overwrite RIP by popping old value & pushing new value
-	*/
-	popq %rax
-	movq %rax, ushell_original_rip
-	leaq ushell_start(%rip), %rax
-	pushq %rax
-	movq ushell_original_rax, %rax
-	jmp 2f
-1:
-	movq ushell_original_rax, %rax
-	popf
-2:
-#endif
 
 	iretq
 .endm
