@@ -308,7 +308,7 @@ static void ushell_cons_thread(void *arg)
 	int argc, rc;
 	char *buf;
 	char *argv[USHELL_MAX_ARGS];
-	struct uk_console_events *uevent = (struct uk_console_events *) arg;;
+	struct uk_console_events *uevent = (struct uk_console_events *)arg;
 
 	UK_ASSERT(uevent);
 	uk_pr_info("ushell main thread started\n");
@@ -324,7 +324,6 @@ static void ushell_cons_thread(void *arg)
 
 	/* To enter ushell, user need to send something (usually a new line)
 	 * to the virtio-console. Discard that input */
-	//ushell_gets(&buf[0], BUFSIZE);
 
 	while (1) {
 		ushell_print_prompt();
@@ -357,14 +356,13 @@ static int ushell_init(void)
 	ushell_event->thr_s = uk_sched_get_default();
 	ushell_event->uk_cons_data.uk_cdev = uk_cdev;
 	uk_semaphore_init(&ushell_event->events, 0);
-	if (asprintf(&ushell_event->thr_name,
-				"ushell_consdev") < 0) {
+	if (asprintf(&ushell_event->thr_name, "ushell_consdev") < 0) {
 		ushell_event->thr_name = NULL;
 	}
 
-	ushell_event->thr = uk_sched_thread_create(ushell_event->thr_s,
-						ushell_event->thr_name, NULL,
-						ushell_cons_thread, ushell_event);
+	ushell_event->thr =
+	    uk_sched_thread_create(ushell_event->thr_s, ushell_event->thr_name,
+				   NULL, ushell_cons_thread, ushell_event);
 
 	return 0;
 }

@@ -8,8 +8,7 @@
 
 struct uk_console_device *dev = NULL;
 
-static int console_get_buffer(struct uk_console_data *cdata,
-					   char **buffer)
+static int console_get_buffer(struct uk_console_data *cdata, char **buffer)
 {
 	unsigned long flags;
 	uint64_t tmp_buf_idx, tmp_buf_head;
@@ -31,7 +30,7 @@ static int console_get_buffer(struct uk_console_data *cdata,
 	}
 	*buffer = cdata->recv_buf[tmp_buf_idx];
 	ukplat_spin_lock_irqsave(&(cdata->buf_cnts_slock), flags);
-	cdata->recv_buf_idx = (cdata->recv_buf_idx + 1) % RECV_BUF_SIZE;
+	cdata->recv_buf_idx = (cdata->recv_buf_idx + 1) % VTCONS_RECV_BUF_SIZE;
 	ukplat_spin_unlock_irqrestore(&(cdata->buf_cnts_slock), flags);
 	return 0;
 }
@@ -95,8 +94,7 @@ char *uk_console_get_buf()
 	return buf;
 }
 
-int uk_cons_put_buffer(struct uk_console_device *cdev,
-			char *buf, int len)
+int uk_console_put_buffer(struct uk_console_device *cdev, char *buf, int len)
 {
 	int flags;
 	struct uk_console_events *cdev_evnt = &(dev->uk_cdev_evnt);
@@ -107,20 +105,21 @@ int uk_cons_put_buffer(struct uk_console_device *cdev,
 	UK_ASSERT(cons_data);
 	UK_ASSERT(buf);
 
-	if (len > QBUF_SIZE) {
+	if (len > VTCONS_QBUF_SIZE) {
 		uk_pr_err("Too big incoming virtio console buffer\n");
 		return -1;
 	}
 	ukplat_spin_lock_irqsave(&(cons_data->buf_cnts_slock), flags);
-	if ((cons_data->recv_buf_head + 1) % RECV_BUF_SIZE
+	if ((cons_data->recv_buf_head + 1) % VTCONS_RECV_BUF_SIZE
 	    == cons_data->recv_buf_idx) {
 		uk_pr_err("Unikraft console: recv buffer full\n");
-		ukplat_spin_unlock_irqrestore(&(cons_data->buf_cnts_slock), flags);
+		ukplat_spin_unlock_irqrestore(&(cons_data->buf_cnts_slock),
+					      flags);
 		return -1;
 	} else {
 		memcpy(cons_data->recv_buf[cons_data->recv_buf_head], buf, len);
 		cons_data->recv_buf_head =
-		    (cons_data->recv_buf_head + 1) % RECV_BUF_SIZE;
+		    (cons_data->recv_buf_head + 1) % VTCONS_RECV_BUF_SIZE;
 	}
 	ukplat_spin_unlock_irqrestore(&(cons_data->buf_cnts_slock), flags);
 	uk_semaphore_up(&cdev_evnt->events);

@@ -27,7 +27,7 @@ struct virtio_console_queue {
 	uint16_t hwvq_id;
 	struct uk_sglist sg;
 	struct uk_sglist_seg sgsegs[1];
-	char buf[QBUF_SIZE];
+	char buf[VTCONS_QBUF_SIZE];
 };
 
 struct virtio_console_device {
@@ -88,8 +88,7 @@ static int virtio_console_recv(struct virtqueue *vq, void *priv)
 	struct uk_console_device *uk_cons = &(cdev->uk_cdev);
 	int handled = 0;
 	int len, rc;
-	//char(*buf)[QBUF_SIZE];
-	char*buf;
+	char *buf;
 
 	UK_ASSERT(vq);
 	UK_ASSERT(cdev);
@@ -97,7 +96,7 @@ static int virtio_console_recv(struct virtqueue *vq, void *priv)
 	UK_ASSERT(vq == cdev->rxq->vq);
 
 	len = virtio_console_rxq_dequeue(cdev, &buf);
-	rc = uk_cons_put_buffer(uk_cons, buf, len);
+	rc = uk_console_put_buffer(uk_cons, buf, len);
 	UK_ASSERT(rc == 0);
 
 	rc = virtio_console_rxq_enqueue(cdev);
@@ -109,7 +108,7 @@ static int virtio_console_recv(struct virtqueue *vq, void *priv)
 
 #ifdef CONFIG_LIBUSHELL
 	/* TODO: do this only when this device is for ushell */
-	//ushell_interrupt = 1;
+	// ushell_interrupt = 1;
 #endif
 
 #if CONFIG_LIBUKSCHED
@@ -318,7 +317,8 @@ static int virtio_console_add_dev(struct virtio_dev *vdev)
 
 	uk_consd_ev_dt->recv_buf_idx = 0;
 	uk_consd_ev_dt->recv_buf_head = 0;
-	memset(uk_consd_ev_dt->recv_buf, 0, RECV_BUF_SIZE*QBUF_SIZE);
+	memset(uk_consd_ev_dt->recv_buf, 0,
+	       VTCONS_RECV_BUF_SIZE * VTCONS_QBUF_SIZE);
 	ukarch_spin_init(&(uk_consd_ev_dt->buf_cnts_slock));
 
 	vcdev->rxq = uk_calloc(a, 1, sizeof(*vcdev->rxq));
@@ -344,7 +344,6 @@ static int virtio_console_add_dev(struct virtio_dev *vdev)
 
 	strncpy(&vcdev->uk_cdev.name[0], "virtio-console",
 		sizeof(vcdev->uk_cdev.name));
-	//vcdev->uk_cdev.ops.getc = virtio_console_getc;
 	vcdev->uk_cdev.ops.putc = virtio_console_putc;
 
 #if CONFIG_LIBUKSCHED

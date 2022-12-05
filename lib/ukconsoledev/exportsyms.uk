@@ -3,4 +3,4 @@ uk_console_get_dev
 uk_console_putc
 uk_console_puts
 uk_console_get_buf
-uk_cons_put_buffer
+uk_console_put_buffer
