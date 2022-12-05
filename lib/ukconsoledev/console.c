@@ -109,6 +109,7 @@ int uk_console_put_buffer(struct uk_console_device *cdev, char *buf, int len)
 		uk_pr_err("Too big incoming virtio console buffer\n");
 		return -1;
 	}
+	buf[len] = '\0';
 	ukplat_spin_lock_irqsave(&(cons_data->buf_cnts_slock), flags);
 	if ((cons_data->recv_buf_head + 1) % VTCONS_RECV_BUF_SIZE
 	    == cons_data->recv_buf_idx) {
