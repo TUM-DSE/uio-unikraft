@@ -1,9 +1,8 @@
+#include "elf.h"
+
 #include <string.h> // strncpy
 
 #ifdef USHELL_LOADER_TEST
-
-#include <libelf.h>
-#include <gelf.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -87,14 +86,20 @@ void load_elf_binary(char *path, void **elf_img, size_t *elf_size)
 
 void reloc_elf()
 {
-	/* Recent compiler uses R_X86_64_PLT32 instead of R_X86_64_PC32 to mark
-	 * 32-bit PC-relative branches. cf.
-	 * https://sourceware.org/git/?p=binutils-gdb.git;a=commitdiff;*h=bd7ab16b4537788ad53521c45469a1bdae84ad4a;*hp=80c96350467f23a54546580b3e2b67a65ec65b66
+	/* NOTE: recent compiler uses R_X86_64_PLT32 instead of R_X86_64_PC32 to
+	 * mark 32-bit PC-relative branches.
+	 * "Linker can always reduce PLT32 relocation to PC32 if function is
+	 * defined locally." cf.
+	 * https://sourceware.org/git/?p=binutils-gdb.git;a=commitdiff;h=bd7ab16b4537788ad53521c45469a1bdae84ad4a;hp=80c96350467f23a54546580b3e2b67a65ec65b66
 	 *
-	 * R_X86_64_PLT32: S + A - P
+	 * R_X86_64_PC32: S + A - P
 	 *     S: st_value (symbol address)
 	 *     A: addend
 	 *     P: the address of the memory location being relocated
+	 *
+	 * R_X86_64_GOTPCREL: G + GOT + A - P
+	 *    G: offset to the GOT relative to the address of the symbol
+	 *    GOT: address of the GOT
 	 */
 }
 
@@ -107,62 +112,54 @@ int execute_func(void *code, int argc, char *argv[])
 
 void run_elf(void *elf_img, size_t elf_size, int argc, char *argv[])
 {
-	// init libelf
-	Elf *elf;
-	assert(elf_version(EV_CURRENT) != EV_NONE);
-	elf = elf_memory(elf_img, elf_size);
-	assert(elf);
-	assert(elf_kind(elf) == ELF_K_ELF);
-
-	// check elf headers
-	GElf_Ehdr ehdr;
-	assert(gelf_getehdr(elf, &ehdr));
-	assert(ehdr.e_machine == EM_X86_64);
-	assert(ehdr.e_type == ET_REL);
+	assert(elf_img);
+	Elf64_Ehdr *ehdr = elf_img;
+	assert(ehdr->e_ident[0] == 0x7f && ehdr->e_ident[1] == 'E'
+	       && ehdr->e_ident[2] == 'L' && ehdr->e_ident[3] == 'F');
+	assert(ehdr->e_machine == EM_AMD64);
+	assert(ehdr->e_type == ET_REL);
 
 	// scan sections
 	int i, txt_idx = -1, sym_idx = -1, str_idx = -1;
-	Elf_Scn *scn;
-	GElf_Shdr shdr, shstr_shdr, str_shdr, txt_shdr, sym_shdr;
-	printf("section num: %d\n", ehdr.e_shnum);
-	printf("string table idx: %d\n", ehdr.e_shstrndx);
-	scn = elf_getscn(elf, ehdr.e_shstrndx);
-	assert(gelf_getshdr(scn, &shstr_shdr) == &shstr_shdr);
-	char *shstrtab = elf_img + shstr_shdr.sh_offset;
-	for (i = 0; i < ehdr.e_shnum; i++) {
-		scn = elf_getscn(elf, i);
-		assert(scn);
-		assert(gelf_getshdr(scn, &shdr) == &shdr);
-		printf("seciton %d: %s\n", i, shstrtab + shdr.sh_name);
-		if (!strcmp(shstrtab + shdr.sh_name, ".text")) {
+	Elf64_Shdr *shdr, *shstr_shdr, *str_shdr, *txt_shdr, *sym_shdr;
+	printf("section num: %d\n", ehdr->e_shnum);
+	printf("string table idx: %d\n", ehdr->e_shstrndx);
+	shdr = elf_img + ehdr->e_shoff;
+	shstr_shdr = shdr + ehdr->e_shstrndx;
+	char *shstrtab = elf_img + shstr_shdr->sh_offset;
+	for (i = 0; i < ehdr->e_shnum; i++) {
+		char *shname = shstrtab + shdr->sh_name;
+		printf("seciton %d: %s\n", i, shname);
+		if (!strcmp(shname, ".text")) {
 			txt_shdr = shdr;
 			txt_idx = i;
-		} else if (!strcmp(shstrtab + shdr.sh_name, ".symtab")) {
+		} else if (!strcmp(shname, ".symtab")) {
 			sym_shdr = shdr;
 			sym_idx = i;
-		} else if (!strcmp(shstrtab + shdr.sh_name, ".strtab")) {
+		} else if (!strcmp(shname, ".strtab")) {
 			str_shdr = shdr;
 			str_idx = i;
 		}
+		shdr++;
 	}
 	assert(txt_idx != -1 && sym_idx != -1);
 
 	printf("found text section: id=%d, offset=%ld, size=%ld\n", txt_idx,
-	       txt_shdr.sh_offset, txt_shdr.sh_size);
+	       txt_shdr->sh_offset, txt_shdr->sh_size);
 
-	int sym_entries = sym_shdr.sh_size / sym_shdr.sh_entsize;
+	int sym_entries = sym_shdr->sh_size / sym_shdr->sh_entsize;
 	printf(
 	    "found symbol table section: id=%d, offset=%ld, size=%ld, num=%d\n",
-	    sym_idx, sym_shdr.sh_offset, sym_shdr.sh_size, sym_entries);
+	    sym_idx, sym_shdr->sh_offset, sym_shdr->sh_size, sym_entries);
 
 	// scan symbol section (search entry point)
-	Elf64_Sym *sym = elf_img + sym_shdr.sh_offset;
+	Elf64_Sym *sym = elf_img + sym_shdr->sh_offset;
 	Elf64_Sym *main_sym = NULL;
 	for (i = 0; i < sym_entries; i++, sym++) {
-		char *name =
-		    sym->st_name == 0
-			? "<noname>"
-			: (char *)(elf_img + str_shdr.sh_offset + sym->st_name);
+		char *name = sym->st_name == 0
+				 ? "<noname>"
+				 : (char *)(elf_img + str_shdr->sh_offset
+					    + sym->st_name);
 		printf(
 		    "symbol %d: %s, size=%ld, value=%ld, type=%d, shndx=%x\n",
 		    i, name, sym->st_size, sym->st_value, sym->st_info & 0xf,
@@ -178,14 +175,13 @@ void run_elf(void *elf_img, size_t elf_size, int argc, char *argv[])
 	void *code = mmap(NULL, elf_size, PROT_WRITE | PROT_EXEC,
 			  MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 	assert(code != MAP_FAILED);
-	memcpy(code, elf_img + txt_shdr.sh_offset, txt_shdr.sh_size);
+	memcpy(code, elf_img + txt_shdr->sh_offset, txt_shdr->sh_size);
 
 	// run
-	int r = execute_func(code + main_sym->st_value, argc - 1, argv + 1);
+	int r = execute_func(code + main_sym->st_value, argc, argv);
 	printf("return value: %d\n", r);
 
 	// clean up
-	elf_end(elf);
 	munmap(code, elf_size);
 }
 
