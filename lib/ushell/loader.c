@@ -43,6 +43,50 @@ void ushell_free_memory(void *addr, unsigned long size __attribute__((unused)))
 
 #endif
 
+#define USHELL_PROG_MAX_NUM 16
+#define USHELL_PROG_NAME_MAX 16
+struct ushell_program {
+	char name[USHELL_PROG_NAME_MAX];
+	void *text;
+	void *data;
+	void *bss;
+	void *rodata;
+	size_t text_size;
+	size_t data_size;
+	size_t bss_size;
+	size_t rodata_size;
+	uint64_t entry_off;
+};
+
+int ushell_program_current_idx;
+struct ushell_program ushell_programs[USHELL_PROG_MAX_NUM];
+
+static struct ushell_program *ushell_program_find(char *name)
+{
+	int i;
+	for (i = 0; i < ushell_program_current_idx; i++) {
+		if (!strncmp(ushell_programs[i].name, name,
+			     USHELL_PROG_NAME_MAX)) {
+			return &ushell_programs[i];
+		}
+	}
+	return NULL;
+}
+
+static void ushell_program_init(char *name, struct ushell_program *prog)
+{
+	memcpy(prog->name, name, USHELL_PROG_NAME_MAX);
+	prog->text = NULL;
+	prog->data = NULL;
+	prog->bss = NULL;
+	prog->rodata = NULL;
+	prog->text_size = 0;
+	prog->data_size = 0;
+	prog->bss_size = 0;
+	prog->rodata_size = 0;
+	prog->entry_off = 0;
+}
+
 void *ushell_symbol_get(const char *symbol)
 {
 	void *addr = NULL;
@@ -68,23 +112,7 @@ void uk_console_puts(char *buf, int n)
 	}
 }
 
-void load_elf_binary(char *path, void **elf_img, size_t *elf_size)
-{
-	int fd = open(path, O_RDONLY);
-	assert(fd > 0);
-	struct stat sb;
-	fstat(fd, &sb);
-
-	printf("file: %s, size: %ld\n", path, sb.st_size);
-	void *addr = NULL;
-	addr = mmap(NULL, sb.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
-	assert(addr != MAP_FAILED && addr != 0);
-
-	*elf_size = sb.st_size;
-	*elf_img = addr;
-}
-
-void reloc_elf()
+static void reloc_elf()
 {
 	/* NOTE: recent compiler uses R_X86_64_PLT32 instead of R_X86_64_PC32 to
 	 * mark 32-bit PC-relative branches.
@@ -103,16 +131,25 @@ void reloc_elf()
 	 */
 }
 
-int execute_func(void *code, int argc, char *argv[])
+static void ushell_program_load_elf(char *path)
 {
-	int (*func)(int, char *[]) = code;
-	int r = func(argc, argv);
-	return r;
-}
+	assert(ushell_program_current_idx < USHELL_PROG_MAX_NUM);
 
-void run_elf(void *elf_img, size_t elf_size, int argc, char *argv[])
-{
-	assert(elf_img);
+	struct ushell_program *prog =
+	    &ushell_programs[ushell_program_current_idx];
+	ushell_program_init(path, prog);
+
+	int fd = open(path, O_RDONLY);
+	assert(fd > 0);
+	struct stat sb;
+	fstat(fd, &sb);
+
+	printf("file: %s, size: %ld\n", path, sb.st_size);
+	void *elf_img = NULL;
+	size_t elf_size = sb.st_size;
+	elf_img = mmap(NULL, elf_size, PROT_READ, MAP_PRIVATE, fd, 0);
+	assert(elf_img != MAP_FAILED);
+
 	Elf64_Ehdr *ehdr = elf_img;
 	assert(ehdr->e_ident[0] == 0x7f && ehdr->e_ident[1] == 'E'
 	       && ehdr->e_ident[2] == 'L' && ehdr->e_ident[3] == 'F');
@@ -147,12 +184,17 @@ void run_elf(void *elf_img, size_t elf_size, int argc, char *argv[])
 	printf("found text section: id=%d, offset=%ld, size=%ld\n", txt_idx,
 	       txt_shdr->sh_offset, txt_shdr->sh_size);
 
+	// load each sections
+	prog->text = mmap(NULL, elf_size, PROT_WRITE | PROT_EXEC,
+			  MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	assert(prog->text != MAP_FAILED);
+	memcpy(prog->text, elf_img + txt_shdr->sh_offset, txt_shdr->sh_size);
+
+	// scan symbol section (search entry point)
 	int sym_entries = sym_shdr->sh_size / sym_shdr->sh_entsize;
 	printf(
 	    "found symbol table section: id=%d, offset=%ld, size=%ld, num=%d\n",
 	    sym_idx, sym_shdr->sh_offset, sym_shdr->sh_size, sym_entries);
-
-	// scan symbol section (search entry point)
 	Elf64_Sym *sym = elf_img + sym_shdr->sh_offset;
 	Elf64_Sym *main_sym = NULL;
 	for (i = 0; i < sym_entries; i++, sym++) {
@@ -170,19 +212,31 @@ void run_elf(void *elf_img, size_t elf_size, int argc, char *argv[])
 	}
 
 	assert(main_sym);
+	prog->entry_off = main_sym->st_value;
 
-	// load
-	void *code = mmap(NULL, elf_size, PROT_WRITE | PROT_EXEC,
-			  MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-	assert(code != MAP_FAILED);
-	memcpy(code, elf_img + txt_shdr->sh_offset, txt_shdr->sh_size);
+	ushell_program_current_idx += 1;
+	munmap(elf_img, elf_size);
+}
 
-	// run
-	int r = execute_func(code + main_sym->st_value, argc, argv);
+static void ushell_program_run(char *prog_name, int argc, char *argv[])
+{
+	struct ushell_program *prog = ushell_program_find(prog_name);
+	assert(prog);
+	int (*func)(int, char *[]) = prog->text + prog->entry_off;
+	int r = func(argc, argv);
 	printf("return value: %d\n", r);
+}
 
-	// clean up
-	munmap(code, elf_size);
+static void ushell_program_free()
+{
+	int i = 0;
+	for (i = 0; i < ushell_program_current_idx; i++) {
+		munmap(ushell_programs[i].text, ushell_programs[i].text_size);
+		munmap(ushell_programs[i].data, ushell_programs[i].data_size);
+		munmap(ushell_programs[i].bss, ushell_programs[i].bss_size);
+		munmap(ushell_programs[i].rodata,
+		       ushell_programs[i].rodata_size);
+	}
 }
 
 int main(int argc, char *argv[])
@@ -193,11 +247,9 @@ int main(int argc, char *argv[])
 	}
 	char *prog = argv[1];
 
-	void *elf_img, *code;
-	size_t size;
-	load_elf_binary(prog, &elf_img, &size);
-	run_elf(elf_img, size, argc - 1, argv + 1);
-	munmap(elf_img, size);
+	ushell_program_load_elf(prog);
+	ushell_program_run(prog, argc - 1, argv + 1);
+	ushell_program_free();
 
 	return 0;
 }
