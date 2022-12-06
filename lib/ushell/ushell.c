@@ -4,9 +4,11 @@
 #include <uk/print.h>
 #include <uk/hexdump.h>
 #include <vfscore/mount.h>
+#include <uk/init.h>
 
 #if CONFIG_LIBUKSCHED
 #include "uk/thread.h"
+#include "uk/sched.h"
 #endif
 
 #ifdef CONFIG_LIBUKSIGNAL
@@ -19,12 +21,6 @@
 #include <string.h>
 #include <stdio.h>
 
-#define BUFSIZE 128
-
-__u64 ushell_interrupt;
-__u64 ushell_in_shell_context;
-__u64 ushell_original_rax;
-__u64 ushell_original_rip;
 int ushell_mounted;
 
 //-------------------------------------
@@ -85,28 +81,6 @@ static void ushell_puts(char *str)
 static void ushell_print_prompt()
 {
 	ushell_puts("> ");
-}
-
-static unsigned ushell_gets(char *buf, unsigned size)
-{
-	char ch;
-	unsigned i = 0;
-
-	while (1) {
-		ch = uk_console_getc();
-		buf[i] = ch;
-		if (ch == '\n' || ch == '\0') {
-			buf[i] = '\0'; // remove new line
-			break;
-		}
-		i++;
-		if (i == size - 1) {
-			uk_pr_err("ushell: buffer full\n");
-			break;
-		}
-	}
-	buf[i] = '\0';
-	return i;
 }
 
 char *strip_str(char *str)
@@ -329,22 +303,15 @@ static int ushell_split_args(char *buf, char *args[])
 	return i;
 }
 
-void ushell_main_thread()
+static void ushell_cons_thread(void *arg)
 {
 	int argc, rc;
-	char buf[BUFSIZE];
+	char *buf;
 	char *argv[USHELL_MAX_ARGS];
+	struct uk_console_events *uevent = (struct uk_console_events *)arg;
 
+	UK_ASSERT(uevent);
 	uk_pr_info("ushell main thread started\n");
-
-#if CONFIG_LIBUKSCHED
-	/* Set the current thread runnable in case the main thread is sleeping
-	 */
-	struct uk_thread *current = uk_thread_current();
-	__snsec wakeup_time = current->wakeup_time;
-	int thread_runnable = is_runnable(current);
-	uk_thread_wake(current);
-#endif
 
 	rc = ushell_mount();
 #if 0
@@ -357,12 +324,11 @@ void ushell_main_thread()
 
 	/* To enter ushell, user need to send something (usually a new line)
 	 * to the virtio-console. Discard that input */
-	ushell_gets(&buf[0], BUFSIZE);
 
 	while (1) {
 		ushell_print_prompt();
-		unsigned i = ushell_gets(&buf[0], BUFSIZE);
-		if (i == 0)
+		buf = uk_console_get_buf();
+		if (buf == NULL)
 			continue;
 		argc = ushell_split_args(buf, argv);
 		rc = ushell_process_cmd(argc, argv);
@@ -370,14 +336,35 @@ void ushell_main_thread()
 			break;
 		}
 	}
-
-#if CONFIG_LIBUKSCHED
-	if (!thread_runnable && wakeup_time > 0) {
-		/* Original main thread was sleeping.
-		 * Resume sleeping.
-		 */
-		uk_thread_block_until(current, wakeup_time);
-	}
-#endif
 }
 
+static int ushell_init(void)
+{
+	struct uk_console_device *uk_cdev;
+	struct uk_console_events *ushell_event;
+
+	uk_cdev = uk_console_get_dev();
+	/*
+	 * This function is supposed to start after a console device
+	 * has been registered.
+	 */
+	UK_ASSERT(uk_cdev);
+
+	uk_pr_info("Attached ushell at %s\n", uk_cdev->name);
+
+	ushell_event = &uk_cdev->uk_cdev_evnt;
+	ushell_event->thr_s = uk_sched_get_default();
+	ushell_event->uk_cons_data.uk_cdev = uk_cdev;
+	uk_semaphore_init(&ushell_event->events, 0);
+	if (asprintf(&ushell_event->thr_name, "ushell_consdev") < 0) {
+		ushell_event->thr_name = NULL;
+	}
+
+	ushell_event->thr =
+	    uk_sched_thread_create(ushell_event->thr_s, ushell_event->thr_name,
+				   NULL, ushell_cons_thread, ushell_event);
+
+	return 0;
+}
+
+uk_late_initcall(ushell_init);

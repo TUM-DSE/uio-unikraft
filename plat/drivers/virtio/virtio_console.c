@@ -22,24 +22,19 @@ extern __u64 ushell_interrupt;
 #define DRIVER_NAME "virtio-console"
 static struct uk_alloc *a;
 
-#define BUF_SIZE 128
 struct virtio_console_queue {
 	struct virtqueue *vq;
 	uint16_t hwvq_id;
 	struct uk_sglist sg;
 	struct uk_sglist_seg sgsegs[1];
-	char buf[BUF_SIZE];
+	char buf[VTCONS_QBUF_SIZE];
 };
 
-#define RECV_BUF_SIZE 1024
 struct virtio_console_device {
 	struct virtio_dev *vdev;
 	struct virtio_console_queue *rxq;
 	struct virtio_console_queue *txq;
 	struct uk_console_device uk_cdev;
-	char recv_buf[RECV_BUF_SIZE];
-	int recv_buf_idx;
-	int recv_buf_head;
 	int interrupt_enabled;
 #if CONFIG_LIBUKSCHED
 	struct uk_waitq wq;
@@ -51,9 +46,7 @@ struct virtio_console_device {
 
 static int virtio_console_rxq_enqueue(struct virtio_console_device *d);
 static int virtio_console_rxq_dequeue(struct virtio_console_device *d,
-				      char (**buf)[BUF_SIZE]);
-static int virtio_console_put_buffer(struct virtio_console_device *cdev,
-				     char (*buf)[BUF_SIZE], int len);
+				      char **buf);
 
 static int virtio_console_start(struct virtio_console_device *d)
 {
@@ -92,16 +85,18 @@ static int virtio_console_feature_negotiate(struct virtio_console_device *d)
 static int virtio_console_recv(struct virtqueue *vq, void *priv)
 {
 	struct virtio_console_device *cdev = priv;
+	struct uk_console_device *uk_cons = &(cdev->uk_cdev);
 	int handled = 0;
 	int len, rc;
-	char(*buf)[BUF_SIZE];
+	char *buf;
 
 	UK_ASSERT(vq);
 	UK_ASSERT(cdev);
+	UK_ASSERT(uk_cons);
 	UK_ASSERT(vq == cdev->rxq->vq);
 
 	len = virtio_console_rxq_dequeue(cdev, &buf);
-	rc = virtio_console_put_buffer(cdev, buf, len);
+	rc = uk_console_put_buffer(uk_cons, buf, len);
 	UK_ASSERT(rc == 0);
 
 	rc = virtio_console_rxq_enqueue(cdev);
@@ -113,7 +108,7 @@ static int virtio_console_recv(struct virtqueue *vq, void *priv)
 
 #ifdef CONFIG_LIBUSHELL
 	/* TODO: do this only when this device is for ushell */
-	ushell_interrupt = 1;
+	// ushell_interrupt = 1;
 #endif
 
 #if CONFIG_LIBUKSCHED
@@ -200,7 +195,7 @@ static int virtio_console_rxq_enqueue(struct virtio_console_device *d)
 }
 
 static int virtio_console_rxq_dequeue(struct virtio_console_device *d,
-				      char (**buf)[BUF_SIZE])
+				      char **buf)
 {
 	int rc;
 	__u32 len;
@@ -259,86 +254,6 @@ static int virtio_console_peak(struct virtio_console_device *cdev)
 	return virtqueue_hasdata(cdev->rxq->vq);
 }
 
-static int virtio_console_getc_from_buffer(struct virtio_console_device *cdev,
-					   char *c)
-{
-	if (cdev->recv_buf_idx == cdev->recv_buf_head) {
-		// no data
-		return -1;
-	}
-	*c = cdev->recv_buf[cdev->recv_buf_idx];
-	cdev->recv_buf_idx = (cdev->recv_buf_idx + 1) % RECV_BUF_SIZE;
-	return 0;
-}
-
-static int virtio_console_put_buffer(struct virtio_console_device *cdev,
-				     char (*buf)[BUF_SIZE], int len)
-{
-	int i;
-	for (i = 0; i < len; i++) {
-		if ((cdev->recv_buf_head + 1) % RECV_BUF_SIZE
-		    == cdev->recv_buf_idx) {
-			uk_pr_err(DRIVER_NAME ": recv buffer full\n");
-			return -1;
-		} else {
-			cdev->recv_buf[cdev->recv_buf_head] = (*buf)[i];
-			cdev->recv_buf_head =
-			    (cdev->recv_buf_head + 1) % RECV_BUF_SIZE;
-		}
-	}
-	return 0;
-}
-
-static char virtio_console_getc(struct uk_console_device *uk_cdev)
-{
-	char c;
-	int len, rc = 0;
-	char(*buf)[BUF_SIZE];
-	struct virtio_console_device *cdev = to_virtiocdev(uk_cdev);
-
-	// return char if any in the buffer
-	rc = virtio_console_getc_from_buffer(cdev, &c);
-	if (rc == 0) {
-		return c;
-	}
-
-	// if interrupt enabled, then wait for an interrupt
-	if (cdev->interrupt_enabled) {
-#if CONFIG_LIBUKSCHED
-		uk_waitq_wait_event(&cdev->wq,
-				    cdev->recv_buf_idx != cdev->recv_buf_head);
-#else
-		while (cdev->recv_buf_idx == cdev->recv_buf_head) {
-			ukarch_spinwait();
-		}
-#endif
-		rc = virtio_console_getc_from_buffer(cdev, &c);
-		UK_ASSERT(rc == 0);
-		return c;
-	}
-
-	// if not, then busy wait
-	while (!virtio_console_peak(cdev)) {
-		ukarch_spinwait();
-	}
-
-	// get data
-	len = virtio_console_rxq_dequeue(cdev, &buf);
-	rc = virtio_console_put_buffer(cdev, buf, len);
-	UK_ASSERT(rc == 0);
-
-	rc = virtio_console_getc_from_buffer(cdev, &c);
-	UK_ASSERT(rc == 0);
-
-	rc = virtio_console_rxq_enqueue(cdev);
-	if (unlikely(rc != 0)) {
-		uk_pr_err(DRIVER_NAME
-			  ": Failed to add a buffer to receive queue\n");
-	}
-
-	return c;
-}
-
 static void virtio_console_putc(struct uk_console_device *uk_cdev, char c)
 {
 	struct virtio_console_device *cdev = to_virtiocdev(uk_cdev);
@@ -375,7 +290,9 @@ static void virtio_console_putc(struct uk_console_device *uk_cdev, char c)
 static int virtio_console_add_dev(struct virtio_dev *vdev)
 {
 	struct virtio_console_device *vcdev = NULL;
-	struct uk_console_device *uk_cdev = NULL;
+	struct uk_console_device *uk_consd = NULL;
+	struct uk_console_events *uk_consd_ev = NULL;
+	struct uk_console_data *uk_consd_ev_dt = NULL;
 	int rc = 0;
 
 	UK_ASSERT(a != NULL);
@@ -386,10 +303,23 @@ static int virtio_console_add_dev(struct virtio_dev *vdev)
 		rc = -ENOMEM;
 		goto out;
 	}
+
+	uk_consd = &(vcdev->uk_cdev);
+	uk_consd_ev = &(uk_consd->uk_cdev_evnt);
+	uk_consd_ev_dt = &(uk_consd_ev->uk_cons_data);
+
 	vcdev->vdev = vdev;
-	vcdev->recv_buf_idx = 0;
-	vcdev->recv_buf_head = 0;
 	vcdev->interrupt_enabled = 0;
+
+	uk_consd_ev->thr = NULL;
+	uk_consd_ev->thr_name = NULL;
+	uk_consd_ev->thr_s = NULL;
+
+	uk_consd_ev_dt->recv_buf_idx = 0;
+	uk_consd_ev_dt->recv_buf_head = 0;
+	memset(uk_consd_ev_dt->recv_buf, 0,
+	       VTCONS_RECV_BUF_SIZE * VTCONS_QBUF_SIZE);
+	ukarch_spin_init(&(uk_consd_ev_dt->buf_cnts_slock));
 
 	vcdev->rxq = uk_calloc(a, 1, sizeof(*vcdev->rxq));
 	if (!vcdev) {
@@ -414,14 +344,13 @@ static int virtio_console_add_dev(struct virtio_dev *vdev)
 
 	strncpy(&vcdev->uk_cdev.name[0], "virtio-console",
 		sizeof(vcdev->uk_cdev.name));
-	vcdev->uk_cdev.ops.getc = virtio_console_getc;
 	vcdev->uk_cdev.ops.putc = virtio_console_putc;
 
 #if CONFIG_LIBUKSCHED
 	uk_waitq_init(&vcdev->wq);
 #endif
 
-	uk_console_register_device(&vcdev->uk_cdev);
+	uk_console_register_device(uk_consd);
 
 out:
 	return rc;
@@ -431,7 +360,6 @@ out_free:
 		uk_free(a, vcdev->txq);
 	}
 	uk_free(a, vcdev);
-	uk_free(a, uk_cdev);
 	goto out;
 }
 
