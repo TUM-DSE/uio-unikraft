@@ -71,8 +71,15 @@ struct elf_sections {
 	Elf64_Shdr *shstr;
 	Elf64_Shdr *str;
 	Elf64_Shdr *text;
+	Elf64_Shdr *data;
+	Elf64_Shdr *bss;
+	Elf64_Shdr *rodata;
 	Elf64_Shdr *rela_text;
 	Elf64_Shdr *sym;
+	int text_idx;
+	int data_idx;
+	int bss_idx;
+	int rodata_idx;
 };
 
 struct ushell_loader_ctx {
@@ -175,12 +182,6 @@ static void dump_text(struct ushell_program *prog)
 
 static int ushell_loader_elf_relocate_symbol(struct ushell_loader_ctx *ctx)
 {
-	/*
-	 * R_X86_64_GOTPCREL: G + GOT + A - P
-	 *    G: offset to the GOT relative to the address of the symbol
-	 *    GOT: address of the GOT
-	 */
-
 	if (!ctx->sections.rela_text) {
 		// no relocation entry
 		return 0;
@@ -201,6 +202,44 @@ static int ushell_loader_elf_relocate_symbol(struct ushell_loader_ctx *ctx)
 		}
 		Elf64_Sym *sym = ctx->elf_img + ctx->sections.sym->sh_offset;
 		sym += sym_idx;
+		int sec_idx = sym->st_shndx;
+		int sym_type = ELF64_ST_TYPE(sym->st_info);
+		char *sym_name =
+		    (char *)(ctx->elf_img + ctx->sections.str->sh_offset
+			     + sym->st_name);
+		Elf64_Sxword sym_addr;
+		if (sym_type == STT_NOTYPE) {
+			void *addr = ushell_symbol_get(sym_name);
+			if (addr == NULL) {
+				printf("Cannot resolve symbol: %s\n", sym_name);
+				return -1;
+			}
+			printf("symaddr: %s = %p\n", sym_name, addr);
+			sym_addr = (Elf64_Sxword)addr;
+		} else if (sym_type == STT_FUNC) {
+			sym_addr =
+			    (Elf64_Sxword)(ctx->prog->text + sym->st_value);
+		} else if (sym_type == STT_OBJECT || sym_type == STT_SECTION) {
+			if (sec_idx == ctx->sections.data_idx) {
+				sym_addr = (Elf64_Sxword)(ctx->prog->data
+							  + sym->st_value);
+			} else if (sec_idx == ctx->sections.bss_idx) {
+				sym_addr = (Elf64_Sxword)(ctx->prog->bss
+							  + sym->st_value);
+			} else if (sec_idx == ctx->sections.rodata_idx) {
+				sym_addr = (Elf64_Sxword)(ctx->prog->rodata
+							  + sym->st_value);
+			} else {
+				printf("Invalid index: %d, %s\n", sym_idx,
+				       sym_name);
+				return -1;
+			}
+		} else {
+			printf("Unsupported sym type: i=%d, sym_type=%d, "
+			       "sym_idx=%d, sym_name=%s\n",
+			       i, sym_type, sym_idx, sym_name);
+			return -1;
+		}
 
 		switch (reloc_type) {
 		case R_X86_64_NONE:
@@ -219,18 +258,33 @@ static int ushell_loader_elf_relocate_symbol(struct ushell_loader_ctx *ctx)
 			 *     P: the address of the memory location being
 			 * relocated
 			 */
-			int offset = (int)(sym->st_value) + rel->r_addend
-				     - rel->r_offset;
-			printf("Relocation: location: %ld, sym position: %ld, "
-			       "offset=%d\n",
-			       rel->r_offset, sym->st_value, offset);
-			memcpy(ctx->prog->text + rel->r_offset, &offset,
-			       sizeof(int));
-			break;
+			{
+				Elf64_Sxword reloc_addr =
+				    (Elf64_Sxword)(ctx->prog->text
+						   + rel->r_offset);
+				Elf64_Sxword offset =
+				    sym_addr + rel->r_addend - reloc_addr;
+				Elf64_Xword abs_offset =
+				    offset > 0 ? offset : -offset;
+				printf("Relocation: location: %ld, sym "
+				       "position: %ld, "
+				       "addend: %ld, "
+				       "offset=%lx\n",
+				       rel->r_offset, sym->st_value,
+				       rel->r_addend, offset);
+				if (abs_offset > 0xFFFFFFFF) {
+					printf("Offset too large: %ld\n",
+					       offset);
+					return -1;
+				}
+				memcpy(ctx->prog->text + rel->r_offset, &offset,
+				       sizeof(int));
+				break;
+			}
 		default:
 			printf("Unsupporeted relocation type: %d\n",
 			       reloc_type);
-			break;
+			return -1;
 		}
 	}
 
@@ -284,6 +338,19 @@ static int ushell_loader_elf_scan_section(struct ushell_loader_ctx *ctx)
 		printf("seciton %d: %s\n", i, shname);
 		if (!strcmp(shname, ".text") && shdr->sh_type == SHT_PROGBITS) {
 			ctx->sections.text = shdr;
+			ctx->sections.text_idx = i;
+		} else if (!strcmp(shname, ".data")
+			   && shdr->sh_type == SHT_PROGBITS) {
+			ctx->sections.data = shdr;
+			ctx->sections.data_idx = i;
+		} else if (!strcmp(shname, ".bss")
+			   && shdr->sh_type == SHT_NOBITS) {
+			ctx->sections.bss = shdr;
+			ctx->sections.bss_idx = i;
+		} else if (!strcmp(shname, ".rodata")
+			   && shdr->sh_type == SHT_PROGBITS) {
+			ctx->sections.rodata = shdr;
+			ctx->sections.rodata_idx = i;
 		} else if (!strcmp(shname, ".rela.text")
 			   && shdr->sh_type == SHT_RELA) {
 			ctx->sections.rela_text = shdr;
@@ -316,20 +383,45 @@ static int ushell_loader_elf_scan_section(struct ushell_loader_ctx *ctx)
 	return 0;
 }
 
+static int mmap_and_copy_section(void **addr, size_t size, void *src)
+{
+	return 0;
+}
+
 static int ushell_loader_elf_load_section(struct ushell_loader_ctx *ctx)
 {
-	ctx->prog->text_size = ctx->sections.text->sh_size;
-	ctx->prog->text =
-	    mmap(NULL, ctx->prog->text_size, PROT_WRITE | PROT_EXEC,
-		 MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-	if (ctx->prog->text == MAP_FAILED) {
-		printf("failed to mmap text section\n");
-		ctx->prog->text = NULL;
-		ctx->prog->text_size = 0;
-		return -1;
-	}
-	memcpy(ctx->prog->text, ctx->elf_img + ctx->sections.text->sh_offset,
-	       ctx->sections.text->sh_size);
+#define __MAP_AND_COPY(SECTION)                                                \
+	do {                                                                   \
+		if (ctx->sections.SECTION == NULL) {                           \
+			break;                                                 \
+		}                                                              \
+		size_t size = ctx->sections.SECTION->sh_size;                  \
+		if (size == 0) {                                               \
+			break;                                                 \
+		}                                                              \
+		ctx->prog->SECTION##_size = size;                              \
+		ctx->prog->SECTION =                                           \
+		    mmap(NULL, size, PROT_WRITE | PROT_EXEC | PROT_READ,       \
+			 MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);                  \
+		if (ctx->prog->SECTION == MAP_FAILED) {                        \
+			printf("failed to mmap text section\n");               \
+			return -1;                                             \
+		}                                                              \
+		void *src = ctx->elf_img + ctx->sections.SECTION->sh_offset;   \
+		if (!strcmp(#SECTION, "bss")) {                                \
+			memset(ctx->prog->SECTION, 0, size);                   \
+		} else {                                                       \
+			memcpy(ctx->prog->SECTION, src, size);                 \
+		}                                                              \
+	} while (0)
+
+	__MAP_AND_COPY(text);
+	__MAP_AND_COPY(data);
+	__MAP_AND_COPY(bss);
+	__MAP_AND_COPY(rodata);
+
+#undef __MAP_AND_COPY
+
 	return 0;
 }
 
