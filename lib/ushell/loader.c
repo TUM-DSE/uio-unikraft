@@ -1,4 +1,5 @@
 #include "elf.h"
+#include "reloc.h"
 
 #include <string.h> // strncpy, memcpy, memset
 
@@ -70,6 +71,7 @@ struct elf_sections {
 	Elf64_Shdr *shstr;
 	Elf64_Shdr *str;
 	Elf64_Shdr *text;
+	Elf64_Shdr *rela_text;
 	Elf64_Shdr *sym;
 };
 
@@ -173,21 +175,65 @@ static void dump_text(struct ushell_program *prog)
 
 static int ushell_loader_elf_relocate_symbol(struct ushell_loader_ctx *ctx)
 {
-	/* NOTE: recent compiler uses R_X86_64_PLT32 instead of R_X86_64_PC32 to
-	 * mark 32-bit PC-relative branches.
-	 * "Linker can always reduce PLT32 relocation to PC32 if function is
-	 * defined locally." cf.
-	 * https://sourceware.org/git/?p=binutils-gdb.git;a=commitdiff;h=bd7ab16b4537788ad53521c45469a1bdae84ad4a;hp=80c96350467f23a54546580b3e2b67a65ec65b66
-	 *
-	 * R_X86_64_PC32: S + A - P
-	 *     S: st_value (symbol address)
-	 *     A: addend
-	 *     P: the address of the memory location being relocated
-	 *
+	/*
 	 * R_X86_64_GOTPCREL: G + GOT + A - P
 	 *    G: offset to the GOT relative to the address of the symbol
 	 *    GOT: address of the GOT
 	 */
+
+	if (!ctx->sections.rela_text) {
+		// no relocation entry
+		return 0;
+	}
+
+	int i, rel_entries = ctx->sections.rela_text->sh_size
+			     / ctx->sections.rela_text->sh_entsize;
+	int sym_entries =
+	    ctx->sections.sym->sh_size / ctx->sections.sym->sh_entsize;
+	Elf64_Rela *rel = ctx->elf_img + ctx->sections.rela_text->sh_offset;
+
+	for (i = 0; i < rel_entries; i++, rel++) {
+		int sym_idx = ELF64_R_SYM(rel->r_info);
+		int reloc_type = ELF64_R_TYPE(rel->r_info);
+		if (sym_idx == SHN_UNDEF || sym_idx >= sym_entries) {
+			printf("Unsupported relocation entry\n");
+			continue;
+		}
+		Elf64_Sym *sym = ctx->elf_img + ctx->sections.sym->sh_offset;
+		sym += sym_idx;
+
+		switch (reloc_type) {
+		case R_X86_64_NONE:
+			break;
+		case R_X86_64_PC32:
+		case R_X86_64_PLT32:
+			/* NOTE: recent compiler uses R_X86_64_PLT32 instead of
+			 * R_X86_64_PC32 to mark 32-bit PC-relative branches.
+			 * "Linker can always reduce PLT32 relocation to PC32 if
+			 * function is defined locally." cf.
+			 * https://sourceware.org/git/?p=binutils-gdb.git;a=commitdiff;h=bd7ab16b4537788ad53521c45469a1bdae84ad4a;hp=80c96350467f23a54546580b3e2b67a65ec65b66
+			 *
+			 * R_X86_64_PC32: S + A - P
+			 *     S: st_value (symbol address)
+			 *     A: addend
+			 *     P: the address of the memory location being
+			 * relocated
+			 */
+			int offset = (int)(sym->st_value) + rel->r_addend
+				     - rel->r_offset;
+			printf("Relocation: location: %ld, sym position: %ld, "
+			       "offset=%d\n",
+			       rel->r_offset, sym->st_value, offset);
+			memcpy(ctx->prog->text + rel->r_offset, &offset,
+			       sizeof(int));
+			break;
+		default:
+			printf("Unsupporeted relocation type: %d\n",
+			       reloc_type);
+			break;
+		}
+	}
+
 	return 0;
 }
 
@@ -233,17 +279,26 @@ static int ushell_loader_elf_scan_section(struct ushell_loader_ctx *ctx)
 	ctx->sections.shstr = shdr + ctx->ehdr->e_shstrndx;
 	char *shstrtab = ctx->elf_img + ctx->sections.shstr->sh_offset;
 	int i;
-	for (i = 0; i < ctx->ehdr->e_shnum; i++) {
+	for (i = 0; i < ctx->ehdr->e_shnum; i++, shdr++) {
 		char *shname = shstrtab + shdr->sh_name;
 		printf("seciton %d: %s\n", i, shname);
-		if (!strcmp(shname, ".text")) {
+		if (!strcmp(shname, ".text") && shdr->sh_type == SHT_PROGBITS) {
 			ctx->sections.text = shdr;
-		} else if (!strcmp(shname, ".symtab")) {
+		} else if (!strcmp(shname, ".rela.text")
+			   && shdr->sh_type == SHT_RELA) {
+			ctx->sections.rela_text = shdr;
+		} else if (!strcmp(shname, ".symtab")
+			   && shdr->sh_type == SHT_SYMTAB) {
 			ctx->sections.sym = shdr;
-		} else if (!strcmp(shname, ".strtab")) {
+		} else if (!strcmp(shname, ".strtab")
+			   && shdr->sh_type == SHT_STRTAB) {
 			ctx->sections.str = shdr;
+		} else if (strcmp(shname, ".rela.eh_frame") != 0
+			   && (shdr->sh_type == SHT_REL
+			       || shdr->sh_type == SHT_RELA)) {
+			printf("!!! unsupported relocation entry: %s\n",
+			       shname);
 		}
-		shdr++;
 	}
 
 	if (ctx->sections.text == NULL) {
@@ -278,28 +333,31 @@ static int ushell_loader_elf_load_section(struct ushell_loader_ctx *ctx)
 	return 0;
 }
 
-static int ushell_loader_elf_scan_symbol(struct ushell_loader_ctx *ctx)
+static Elf64_Sym *ushell_loader_elf_find_sym(struct ushell_loader_ctx *ctx,
+					     char *symname)
 {
 	int i;
 	int sym_entries =
 	    ctx->sections.sym->sh_size / ctx->sections.sym->sh_entsize;
 	Elf64_Sym *sym = ctx->elf_img + ctx->sections.sym->sh_offset;
-	Elf64_Sym *main_sym = NULL;
 
 	for (i = 0; i < sym_entries; i++, sym++) {
+		if (sym->st_name == 0) {
+			continue;
+		}
 		char *name =
-		    sym->st_name == 0
-			? "<noname>"
-			: (char *)(ctx->elf_img + ctx->sections.str->sh_offset
-				   + sym->st_name);
-		printf(
-		    "symbol %d: %s, size=%ld, value=%ld, type=%d, shndx=%x\n",
-		    i, name, sym->st_size, sym->st_value, sym->st_info & 0xf,
-		    sym->st_shndx);
-		if (!strncmp(name, "main", 4)) {
-			main_sym = sym;
+		    (char *)(ctx->elf_img + ctx->sections.str->sh_offset
+			     + sym->st_name);
+		if (!strcmp(name, symname)) {
+			return sym;
 		}
 	}
+	return NULL;
+}
+
+static int ushell_loader_elf_find_entry(struct ushell_loader_ctx *ctx)
+{
+	Elf64_Sym *main_sym = ushell_loader_elf_find_sym(ctx, "main");
 
 	if (main_sym == NULL) {
 		printf("no main symbol\n");
@@ -345,15 +403,15 @@ static int ushell_loader_load_elf(char *path)
 		goto err;
 	}
 
-	r = ushell_loader_elf_scan_symbol(&ctx);
-	if (r != 0) {
-		printf("failed to scan symbols\n");
-		goto err;
-	}
-
 	r = ushell_loader_elf_relocate_symbol(&ctx);
 	if (r != 0) {
 		printf("failed to relocate symbols\n");
+		goto err;
+	}
+
+	r = ushell_loader_elf_find_entry(&ctx);
+	if (r != 0) {
+		printf("failed to find main entry point\n");
 		goto err;
 	}
 
