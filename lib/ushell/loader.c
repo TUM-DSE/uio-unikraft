@@ -273,6 +273,12 @@ static int ushell_loader_elf_relocate_symbol(struct ushell_loader_ctx *ctx)
 				       rel->r_offset, sym->st_value,
 				       rel->r_addend, offset);
 				if (abs_offset > 0xFFFFFFFF) {
+					printf("text: %p\n", ctx->prog->text);
+					printf("data: %p\n", ctx->prog->data);
+					printf("bss: %p\n", ctx->prog->bss);
+					printf("rodata: %p\n", ctx->prog->rodata);
+					printf("sym_addr: %p\n", (void*)sym_addr);
+					printf("reloc_addr: %p\n", (void*)reloc_addr);
 					printf("Offset too large: %ld\n",
 					       offset);
 					return -1;
@@ -390,7 +396,7 @@ static int mmap_and_copy_section(void **addr, size_t size, void *src)
 
 static int ushell_loader_elf_load_section(struct ushell_loader_ctx *ctx)
 {
-#define __MAP_AND_COPY(SECTION)                                                \
+#define __MAP_AND_COPY(SECTION, ADDR)                                                \
 	do {                                                                   \
 		if (ctx->sections.SECTION == NULL) {                           \
 			break;                                                 \
@@ -401,7 +407,7 @@ static int ushell_loader_elf_load_section(struct ushell_loader_ctx *ctx)
 		}                                                              \
 		ctx->prog->SECTION##_size = size;                              \
 		ctx->prog->SECTION =                                           \
-		    mmap(NULL, size, PROT_WRITE | PROT_EXEC | PROT_READ,       \
+		    mmap(ADDR, size, PROT_WRITE | PROT_EXEC | PROT_READ,       \
 			 MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);                  \
 		if (ctx->prog->SECTION == MAP_FAILED) {                        \
 			printf("failed to mmap text section\n");               \
@@ -415,10 +421,17 @@ static int ushell_loader_elf_load_section(struct ushell_loader_ctx *ctx)
 		}                                                              \
 	} while (0)
 
-	__MAP_AND_COPY(text);
-	__MAP_AND_COPY(data);
-	__MAP_AND_COPY(bss);
-	__MAP_AND_COPY(rodata);
+#if 0
+	__MAP_AND_COPY(text, NULL);
+	__MAP_AND_COPY(data, NULL);
+	__MAP_AND_COPY(bss, NULL);
+	__MAP_AND_COPY(rodata, NULL);
+#else
+	__MAP_AND_COPY(text, (void*)0x10000);
+	__MAP_AND_COPY(data, (void*)0x20000);
+	__MAP_AND_COPY(bss, (void*)0x30000);
+	__MAP_AND_COPY(rodata, (void*)0x40000);
+#endif
 
 #undef __MAP_AND_COPY
 
