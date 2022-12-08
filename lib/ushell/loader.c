@@ -23,8 +23,6 @@
 #define USHELL_LOADER_PR_ERR printf
 #define USHELL_LOADER_PR_WARN printf
 
-void uk_console_puts(char *buf, int n);
-
 void *ushell_alloc_memory(unsigned long size)
 {
 	return malloc(size);
@@ -60,10 +58,12 @@ struct ushell_program {
 	void *data;
 	void *bss;
 	void *rodata;
+	void *plt;
 	size_t text_size;
 	size_t data_size;
 	size_t bss_size;
 	size_t rodata_size;
+	size_t plt_size;
 	uint64_t entry_off;
 };
 
@@ -122,14 +122,21 @@ static void ushell_program_init(struct ushell_loader_ctx *ctx, char *name)
 	ctx->prog->entry_off = 0;
 }
 
+int ushell_loader_test_data;
+
+int ushell_loader_test_func(int n)
+{
+	return n + ushell_loader_test_data;
+}
+
 void *ushell_symbol_get(const char *symbol)
 {
 	void *addr = NULL;
 
 	UK_ASSERT(symbol);
 
-	if (!strncmp(symbol, "uk_console_puts", 15)) {
-		addr = (void *)uk_console_puts;
+	if (!strcmp(symbol, "ushell_loader_test_func")) {
+		addr = (void *)ushell_loader_test_func;
 	}
 
 	return addr;
@@ -138,14 +145,6 @@ void *ushell_symbol_get(const char *symbol)
 /* -------------------------------------------- */
 
 #ifdef USHELL_LOADER_TEST
-
-void uk_console_puts(char *buf, int n)
-{
-	int i = 0;
-	for (i = 0; i < n; i++) {
-		putc(buf[i], stdout);
-	}
-}
 
 static void ushell_program_free(int idx)
 {
@@ -180,6 +179,130 @@ static void dump_text(struct ushell_program *prog)
 	printf("\n");
 }
 
+static int elf_relocate_x86_64_pc32_plt32(struct ushell_loader_ctx *ctx,
+					  Elf64_Sym *sym, Elf64_Sxword sym_addr,
+					  Elf64_Rela *rel)
+{
+	/* NOTE: recent compiler uses R_X86_64_PLT32 instead of
+	 * R_X86_64_PC32 to mark 32-bit PC-relative branches.
+	 * "Linker can always reduce PLT32 relocation to PC32 if
+	 * function is defined locally." cf.
+	 * https://sourceware.org/git/?p=binutils-gdb.git;a=commitdiff;h=bd7ab16b4537788ad53521c45469a1bdae84ad4a;hp=80c96350467f23a54546580b3e2b67a65ec65b66
+	 *
+	 * R_X86_64_PC32: S + A - P
+	 *     S: st_value (symbol address)
+	 *     A: addend
+	 *     P: the address of the memory location being
+	 * relocated
+	 *
+	 * This relocation usually happens when
+	 * - calling functions (32bit relative)
+	 *   e8 xx xx xx xx : call $0x0(%rip)
+	 * - accessing global variables (clang or compiling with -fPIE)
+	 *   8b 05 xx xx xx xx : mov 0x0(%rip), %eax
+	 */
+	Elf64_Sxword reloc_addr =
+	    (Elf64_Sxword)(ctx->prog->text + rel->r_offset);
+	Elf64_Sxword offset = sym_addr + rel->r_addend - reloc_addr;
+	Elf64_Xword abs_offset = offset > 0 ? offset : -offset;
+	int sym_type = ELF64_ST_TYPE(sym->st_info);
+	printf("Relocation: location: %ld, "
+	       "sym position: %ld, "
+	       "addend: %ld, "
+	       "offset=%lx\n",
+	       rel->r_offset, sym->st_value, rel->r_addend, offset);
+	if (abs_offset < 0xFFFFFFFF) {
+		/* if offset is within 32bit, we can directly access the symbol
+		 */
+		memcpy(ctx->prog->text + rel->r_offset, &offset, sizeof(int));
+	} else {
+		/* if not, we need to use PLT */
+		if (sym_type != STT_FUNC) {
+			/* This might happen when accessing global variables.
+			 * clang uses R_X86_64_PC32 for accessing global
+			 * variables (but not for external variables).
+			 * therefore, if we failed to locate .data, .rodata,
+			 * .bss and .text sections within 32bit region, then the
+			 * offfseet will eceeds 32bit.
+			 *
+			 * (gcc uses R_X86_64_REX_GOTPCRELX)
+			 */
+			printf("No supported\n");
+			return -1;
+		}
+		/*
+		 * 64bit jump:
+		 * jmp *(%rip+off)
+		 * ff 25 00 00 00 00
+		 * xx xx xx xx xx xx xx xx
+		 */
+		printf("text: %p\n", ctx->prog->text);
+		printf("data: %p\n", ctx->prog->data);
+		printf("bss: %p\n", ctx->prog->bss);
+		printf("rodata: %p\n", ctx->prog->rodata);
+		printf("sym_addr: %p\n", (void *)sym_addr);
+		printf("reloc_addr: %p\n", (void *)reloc_addr);
+		printf("Offset too large: %ld\n", offset);
+	}
+	return 0;
+}
+
+static Elf64_Sxword elf_get_sym_addr(struct ushell_loader_ctx *ctx,
+				     Elf64_Sym *sym)
+{
+	int sec_idx = sym->st_shndx;
+	int sym_type = ELF64_ST_TYPE(sym->st_info);
+	char *sym_name = (char *)(ctx->elf_img + ctx->sections.str->sh_offset
+				  + sym->st_name);
+	Elf64_Sxword sym_addr = 0;
+	switch (sym_type) {
+	case STT_NOTYPE: {
+		void *addr = ushell_symbol_get(sym_name);
+		if (addr == NULL) {
+			printf("Cannot resolve symbol: %s\n", sym_name);
+			return -1;
+		}
+		printf("symaddr: %s = %p\n", sym_name, addr);
+		sym_addr = (Elf64_Sxword)addr;
+		break;
+	}
+	case STT_FUNC: {
+		sym_addr = (Elf64_Sxword)(ctx->prog->text + sym->st_value);
+		break;
+	}
+	case STT_OBJECT:
+	case STT_SECTION: {
+		if (sec_idx == ctx->sections.data_idx) {
+			sym_addr =
+			    (Elf64_Sxword)(ctx->prog->data + sym->st_value);
+		} else if (sec_idx == ctx->sections.bss_idx) {
+			sym_addr =
+			    (Elf64_Sxword)(ctx->prog->bss + sym->st_value);
+		} else if (sec_idx == ctx->sections.rodata_idx) {
+			sym_addr =
+			    (Elf64_Sxword)(ctx->prog->rodata + sym->st_value);
+		} else {
+			printf("Invalid section: %d, %s\n", sec_idx, sym_name);
+			return -1;
+		}
+		break;
+	}
+	default: {
+		printf("Unsupported sym type: sym_type=%d, sym_name=%s\n",
+		       sym_type, sym_name);
+		return -1;
+	}
+	}
+	return sym_addr;
+}
+
+static Elf64_Sym *elf_get_sym(struct ushell_loader_ctx *ctx, int sym_idx)
+{
+	Elf64_Sym *sym = ctx->elf_img + ctx->sections.sym->sh_offset;
+	sym += sym_idx;
+	return sym;
+}
+
 static int ushell_loader_elf_relocate_symbol(struct ushell_loader_ctx *ctx)
 {
 	if (!ctx->sections.rela_text) {
@@ -187,106 +310,37 @@ static int ushell_loader_elf_relocate_symbol(struct ushell_loader_ctx *ctx)
 		return 0;
 	}
 
-	int i, rel_entries = ctx->sections.rela_text->sh_size
-			     / ctx->sections.rela_text->sh_entsize;
+	int i, ret;
+	int rel_entries = ctx->sections.rela_text->sh_size
+			  / ctx->sections.rela_text->sh_entsize;
 	int sym_entries =
 	    ctx->sections.sym->sh_size / ctx->sections.sym->sh_entsize;
 	Elf64_Rela *rel = ctx->elf_img + ctx->sections.rela_text->sh_offset;
 
 	for (i = 0; i < rel_entries; i++, rel++) {
 		int sym_idx = ELF64_R_SYM(rel->r_info);
-		int reloc_type = ELF64_R_TYPE(rel->r_info);
 		if (sym_idx == SHN_UNDEF || sym_idx >= sym_entries) {
 			printf("Unsupported relocation entry\n");
 			continue;
 		}
-		Elf64_Sym *sym = ctx->elf_img + ctx->sections.sym->sh_offset;
-		sym += sym_idx;
-		int sec_idx = sym->st_shndx;
-		int sym_type = ELF64_ST_TYPE(sym->st_info);
-		char *sym_name =
-		    (char *)(ctx->elf_img + ctx->sections.str->sh_offset
-			     + sym->st_name);
-		Elf64_Sxword sym_addr;
-		if (sym_type == STT_NOTYPE) {
-			void *addr = ushell_symbol_get(sym_name);
-			if (addr == NULL) {
-				printf("Cannot resolve symbol: %s\n", sym_name);
-				return -1;
-			}
-			printf("symaddr: %s = %p\n", sym_name, addr);
-			sym_addr = (Elf64_Sxword)addr;
-		} else if (sym_type == STT_FUNC) {
-			sym_addr =
-			    (Elf64_Sxword)(ctx->prog->text + sym->st_value);
-		} else if (sym_type == STT_OBJECT || sym_type == STT_SECTION) {
-			if (sec_idx == ctx->sections.data_idx) {
-				sym_addr = (Elf64_Sxword)(ctx->prog->data
-							  + sym->st_value);
-			} else if (sec_idx == ctx->sections.bss_idx) {
-				sym_addr = (Elf64_Sxword)(ctx->prog->bss
-							  + sym->st_value);
-			} else if (sec_idx == ctx->sections.rodata_idx) {
-				sym_addr = (Elf64_Sxword)(ctx->prog->rodata
-							  + sym->st_value);
-			} else {
-				printf("Invalid index: %d, %s\n", sym_idx,
-				       sym_name);
-				return -1;
-			}
-		} else {
-			printf("Unsupported sym type: i=%d, sym_type=%d, "
-			       "sym_idx=%d, sym_name=%s\n",
-			       i, sym_type, sym_idx, sym_name);
+		Elf64_Sym *sym = elf_get_sym(ctx, sym_idx);
+		Elf64_Sxword sym_addr = elf_get_sym_addr(ctx, sym);
+		if (sym_addr <= 0) {
 			return -1;
 		}
 
+		int reloc_type = ELF64_R_TYPE(rel->r_info);
 		switch (reloc_type) {
 		case R_X86_64_NONE:
 			break;
 		case R_X86_64_PC32:
 		case R_X86_64_PLT32:
-			/* NOTE: recent compiler uses R_X86_64_PLT32 instead of
-			 * R_X86_64_PC32 to mark 32-bit PC-relative branches.
-			 * "Linker can always reduce PLT32 relocation to PC32 if
-			 * function is defined locally." cf.
-			 * https://sourceware.org/git/?p=binutils-gdb.git;a=commitdiff;h=bd7ab16b4537788ad53521c45469a1bdae84ad4a;hp=80c96350467f23a54546580b3e2b67a65ec65b66
-			 *
-			 * R_X86_64_PC32: S + A - P
-			 *     S: st_value (symbol address)
-			 *     A: addend
-			 *     P: the address of the memory location being
-			 * relocated
-			 */
-			{
-				Elf64_Sxword reloc_addr =
-				    (Elf64_Sxword)(ctx->prog->text
-						   + rel->r_offset);
-				Elf64_Sxword offset =
-				    sym_addr + rel->r_addend - reloc_addr;
-				Elf64_Xword abs_offset =
-				    offset > 0 ? offset : -offset;
-				printf("Relocation: location: %ld, sym "
-				       "position: %ld, "
-				       "addend: %ld, "
-				       "offset=%lx\n",
-				       rel->r_offset, sym->st_value,
-				       rel->r_addend, offset);
-				if (abs_offset > 0xFFFFFFFF) {
-					printf("text: %p\n", ctx->prog->text);
-					printf("data: %p\n", ctx->prog->data);
-					printf("bss: %p\n", ctx->prog->bss);
-					printf("rodata: %p\n", ctx->prog->rodata);
-					printf("sym_addr: %p\n", (void*)sym_addr);
-					printf("reloc_addr: %p\n", (void*)reloc_addr);
-					printf("Offset too large: %ld\n",
-					       offset);
-					return -1;
-				}
-				memcpy(ctx->prog->text + rel->r_offset, &offset,
-				       sizeof(int));
-				break;
+			ret = elf_relocate_x86_64_pc32_plt32(ctx, sym, sym_addr,
+							     rel);
+			if (ret != 0) {
+				return -1;
 			}
+			break;
 		default:
 			printf("Unsupporeted relocation type: %d\n",
 			       reloc_type);
@@ -396,7 +450,7 @@ static int mmap_and_copy_section(void **addr, size_t size, void *src)
 
 static int ushell_loader_elf_load_section(struct ushell_loader_ctx *ctx)
 {
-#define __MAP_AND_COPY(SECTION, ADDR)                                                \
+#define __MAP_AND_COPY(SECTION, ADDR)                                          \
 	do {                                                                   \
 		if (ctx->sections.SECTION == NULL) {                           \
 			break;                                                 \
@@ -421,16 +475,16 @@ static int ushell_loader_elf_load_section(struct ushell_loader_ctx *ctx)
 		}                                                              \
 	} while (0)
 
-#if 0
+#if 1
 	__MAP_AND_COPY(text, NULL);
 	__MAP_AND_COPY(data, NULL);
 	__MAP_AND_COPY(bss, NULL);
 	__MAP_AND_COPY(rodata, NULL);
 #else
-	__MAP_AND_COPY(text, (void*)0x10000);
-	__MAP_AND_COPY(data, (void*)0x20000);
-	__MAP_AND_COPY(bss, (void*)0x30000);
-	__MAP_AND_COPY(rodata, (void*)0x40000);
+	__MAP_AND_COPY(text, (void *)0x10000);
+	__MAP_AND_COPY(data, (void *)0x20000);
+	__MAP_AND_COPY(bss, (void *)0x30000);
+	__MAP_AND_COPY(rodata, (void *)0x40000);
 #endif
 
 #undef __MAP_AND_COPY
