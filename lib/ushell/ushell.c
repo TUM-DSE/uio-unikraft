@@ -3,6 +3,7 @@
 #include <uk/console.h>
 #include <uk/print.h>
 #include <uk/hexdump.h>
+#include <uk/libparam.h>
 #include <vfscore/mount.h>
 #include <uk/init.h>
 
@@ -20,6 +21,9 @@
 
 #include <string.h>
 #include <stdio.h>
+
+static const char *fsdev = CONFIG_LIBUSHELL_FSDEV;
+UK_LIB_PARAM_STR(fsdev);
 
 int ushell_mounted;
 
@@ -246,7 +250,6 @@ static int ushell_process_cmd(int argc, char *argv[])
 
 static int ushell_mount()
 {
-	const char *rootdev = "fs0";
 	const char *rootfs = "9pfs";
 	int rootflags = 0;
 	char *path = "/ushell";
@@ -267,11 +270,12 @@ static int ushell_mount()
 #endif
 
 	uk_pr_info("ushell: mount fs to %s\n", path);
-	if (mount(rootdev, path, rootfs, rootflags, rootopts) != 0) {
-		uk_pr_crit("Failed to mount %s (%s) at %s: errno=%d\n", rootdev,
+	if (mount(fsdev, path, rootfs, rootflags, rootopts) != 0) {
+		uk_pr_crit("Failed to mount %s (%s) at %s: errno=%d\n", fsdev,
 			   rootfs, path, errno);
 		return -1;
 	}
+
 	ushell_mounted = 1;
 
 	return 0;

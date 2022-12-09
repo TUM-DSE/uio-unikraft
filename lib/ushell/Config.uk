@@ -4,3 +4,9 @@ menuconfig LIBUSHELL
 	select HAVE_X86PKU
 	select LIBUKDEBUG
 	select LIBUKCONSOLE
+
+menuconfig LIBUSHELL_FSDEV
+  string "Default 9p device to mount when ushell is attached"
+  depends on LIBUSHELL
+  default "fs0"
+  
