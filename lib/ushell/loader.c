@@ -64,6 +64,7 @@ struct ushell_program {
 	size_t bss_size;
 	size_t rodata_size;
 	size_t plt_size;
+	int plt_idx;
 	uint64_t entry_off;
 };
 
@@ -110,16 +111,8 @@ static void ushell_program_init(struct ushell_loader_ctx *ctx, char *name)
 	if (ushell_program_find(name) != NULL) {
 		USHELL_LOADER_PR_WARN("program %s is already loaded\n", name);
 	}
+	memset(ctx->prog, 0, sizeof(struct ushell_program));
 	memcpy(ctx->prog->name, name, USHELL_PROG_NAME_MAX);
-	ctx->prog->text = NULL;
-	ctx->prog->data = NULL;
-	ctx->prog->bss = NULL;
-	ctx->prog->rodata = NULL;
-	ctx->prog->text_size = 0;
-	ctx->prog->data_size = 0;
-	ctx->prog->bss_size = 0;
-	ctx->prog->rodata_size = 0;
-	ctx->prog->entry_off = 0;
 }
 
 int ushell_loader_test_data;
@@ -154,6 +147,7 @@ static void ushell_program_free(int idx)
 	munmap(prog->data, prog->data_size);
 	munmap(prog->bss, prog->bss_size);
 	munmap(prog->rodata, prog->rodata_size);
+	munmap(prog->plt, prog->plt_size);
 	memset(prog, 0, sizeof(struct ushell_program));
 }
 
@@ -211,38 +205,89 @@ static int elf_relocate_x86_64_pc32_plt32(struct ushell_loader_ctx *ctx,
 	       "addend: %ld, "
 	       "offset=%lx\n",
 	       rel->r_offset, sym->st_value, rel->r_addend, offset);
-	if (abs_offset < 0xFFFFFFFF) {
+	if (abs_offset <= 0xFFFFFFFF) {
 		/* if offset is within 32bit, we can directly access the symbol
 		 */
 		memcpy(ctx->prog->text + rel->r_offset, &offset, sizeof(int));
 	} else {
 		/* if not, we need to use PLT */
-		if (sym_type != STT_FUNC) {
+		if (sym_type == STT_OBJECT) {
 			/* This might happen when accessing global variables.
 			 * clang uses R_X86_64_PC32 for accessing global
 			 * variables (but not for external variables).
 			 * therefore, if we failed to locate .data, .rodata,
 			 * .bss and .text sections within 32bit region, then the
-			 * offfseet will eceeds 32bit.
+			 * offfseet might eceed 32bit.
 			 *
 			 * (gcc uses R_X86_64_REX_GOTPCRELX)
 			 */
-			printf("No supported\n");
+			printf("Cannot relocate symbol object with 64bit "
+			       "offset\n");
 			return -1;
 		}
 		/*
-		 * 64bit jump:
-		 * jmp *(%rip+off)
-		 * ff 25 00 00 00 00
-		 * xx xx xx xx xx xx xx xx
+		 * generate jump code in PLT
+		 * we don't use GOT but use relative jmp here: jump with the
+		 * address stored immediately after the instruction
+		 *
+		 * jmp *0x0(%rip)
+		 * ff 25 00 00 00 00 xx xx xx xx xx xx xx xx (14 bytes)
+		 *
+		 * One PLT entry uses 16 bytes (the last 2 bytes are unused)
+		 *
 		 */
-		printf("text: %p\n", ctx->prog->text);
-		printf("data: %p\n", ctx->prog->data);
-		printf("bss: %p\n", ctx->prog->bss);
-		printf("rodata: %p\n", ctx->prog->rodata);
-		printf("sym_addr: %p\n", (void *)sym_addr);
-		printf("reloc_addr: %p\n", (void *)reloc_addr);
-		printf("Offset too large: %ld\n", offset);
+
+#define USHELL_LOADER_PLT_SIZE 4096
+#define USHELL_LOADER_PLT_ENTRY_SIZE 16
+
+		if (!ctx->prog->plt) {
+			ctx->prog->plt =
+			    mmap(NULL, USHELL_LOADER_PLT_SIZE,
+				 PROT_WRITE | PROT_EXEC,
+				 MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+			if (ctx->prog->plt == MAP_FAILED) {
+				printf("failed to map plt\n");
+				return -1;
+			}
+			ctx->prog->plt_size = USHELL_LOADER_PLT_SIZE;
+			ctx->prog->plt_idx = 0;
+		}
+
+		if (ctx->prog->plt_idx
+		    >= (ctx->prog->plt_size / USHELL_LOADER_PLT_ENTRY_SIZE)) {
+			printf("Too many entry\n");
+			// TODO: realloc plt
+			return -1;
+		}
+
+		printf("use plt %d\n", ctx->prog->plt_idx);
+
+		void *plt_entry =
+		    ctx->prog->plt
+		    + ctx->prog->plt_idx * USHELL_LOADER_PLT_ENTRY_SIZE;
+		char code[16] = {0xff, 0x25, 0x00, 0x00, 0x00, 0x00,
+				 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+				 0x00, 0x00, 0xcc, 0xcc};
+
+		/* set symbol address in PLT */
+		memcpy(&code[6], &sym_addr, 8);
+		memcpy(plt_entry, code, sizeof(code));
+
+		/* set relative jmp to PLT */
+		Elf64_Sxword plt_offset =
+		    (Elf64_Sxword)plt_entry + rel->r_addend - reloc_addr;
+		Elf64_Xword abs_plt_offset =
+		    plt_offset > 0 ? plt_offset : -plt_offset;
+		if (abs_plt_offset > 0xFFFFFFFF) {
+			/* FIXME: we failed to locate PLT within 32bit region
+			 * relative to .text
+			 */
+			printf("plt offset too large\n");
+			return -1;
+		}
+		memcpy(ctx->prog->text + rel->r_offset, &plt_offset,
+		       sizeof(int));
+		ctx->prog->plt_idx += 1;
 	}
 	return 0;
 }
@@ -481,6 +526,7 @@ static int ushell_loader_elf_load_section(struct ushell_loader_ctx *ctx)
 	__MAP_AND_COPY(bss, NULL);
 	__MAP_AND_COPY(rodata, NULL);
 #else
+	// map in lower 32-bit memory region (for debug)
 	__MAP_AND_COPY(text, (void *)0x10000);
 	__MAP_AND_COPY(data, (void *)0x20000);
 	__MAP_AND_COPY(bss, (void *)0x30000);
