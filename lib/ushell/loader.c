@@ -59,12 +59,15 @@ struct ushell_program {
 	void *bss;
 	void *rodata;
 	void *plt;
+	void *got;
 	size_t text_size;
 	size_t data_size;
 	size_t bss_size;
 	size_t rodata_size;
 	size_t plt_size;
+	size_t got_size;
 	int plt_idx;
+	int got_idx;
 	uint64_t entry_off;
 };
 
@@ -130,6 +133,8 @@ void *ushell_symbol_get(const char *symbol)
 
 	if (!strcmp(symbol, "ushell_loader_test_func")) {
 		addr = (void *)ushell_loader_test_func;
+	} else if (!strcmp(symbol, "ushell_loader_test_data")) {
+		addr = (void *)&ushell_loader_test_data;
 	}
 
 	return addr;
@@ -148,6 +153,7 @@ static void ushell_program_free(int idx)
 	munmap(prog->bss, prog->bss_size);
 	munmap(prog->rodata, prog->rodata_size);
 	munmap(prog->plt, prog->plt_size);
+	munmap(prog->got, prog->got_size);
 	memset(prog, 0, sizeof(struct ushell_program));
 }
 
@@ -189,7 +195,7 @@ static int elf_relocate_x86_64_pc32_plt32(struct ushell_loader_ctx *ctx,
 	 *     P: the address of the memory location being
 	 * relocated
 	 *
-	 * This relocation usually happens when
+	 * This relocation happens when
 	 * - calling functions (32bit relative)
 	 *   e8 xx xx xx xx : call $0x0(%rip)
 	 * - accessing global variables (clang or compiling with -fPIE)
@@ -214,10 +220,10 @@ static int elf_relocate_x86_64_pc32_plt32(struct ushell_loader_ctx *ctx,
 		if (sym_type == STT_OBJECT) {
 			/* This might happen when accessing global variables.
 			 * clang uses R_X86_64_PC32 for accessing global
-			 * variables (but not for external variables).
-			 * therefore, if we failed to locate .data, .rodata,
-			 * .bss and .text sections within 32bit region, then the
-			 * offfseet might eceed 32bit.
+			 * variables (but not for external variables) if mcmodel
+			 * is default. Therefore, if we failed to locate .data,
+			 * .rodata, .bss and .text sections within 32bit region,
+			 * then the offfseet might eceed 32bit.
 			 *
 			 * (gcc uses R_X86_64_REX_GOTPCRELX)
 			 */
@@ -289,6 +295,96 @@ static int elf_relocate_x86_64_pc32_plt32(struct ushell_loader_ctx *ctx,
 		       sizeof(int));
 		ctx->prog->plt_idx += 1;
 	}
+	return 0;
+}
+
+static int elf_relocate_x86_64_gotpcrel(struct ushell_loader_ctx *ctx,
+					Elf64_Sym *sym, Elf64_Sxword sym_addr,
+					Elf64_Rela *rel)
+{
+
+	/*
+	 * From SYSV AMD64 ABI documentation:
+	 *
+	 * """
+	 * The R_X86_64_GOTPCREL relocation has different semantics from the
+	 * R_X86_64_GOT32 or equivalent i386 R_386_GOTPC relocation. In
+	 * particular, because the AMD64 architecture has an addressing mode
+	 * relative to the instruction pointer, it is possible to load an
+	 * address from the GOT using a single instruction. The calculation done
+	 * by the R_X86_64_GOTPCREL relocation gives the difference between the
+	 * location in the GOT where the symbol’s address is given and the
+	 * location where the relocation is applied.
+	 * For the occurrence of name@GOTPCREL in the following assembler
+	 * instructions:
+	 *
+	 *         call       *name@GOTPCREL(%rip)
+	 *         jmp        *name@GOTPCREL(%rip)
+	 *         mov        name@GOTPCREL(%rip), %reg
+	 *         test       %reg, name@GOTPCREL(%rip)
+	 *         binop      name@GOTPCREL(%rip), %reg
+	 *
+	 * where binop is one of adc, add, and, cmp, or, sbb, sub, xor
+	 * instructions, the R_X86_64_GOTPCRELX relocation, or the
+	 * R_X86_64_REX_GOTPCRELX relocation if the REX prefix is present,
+	 * should be generated, instead of the R_X86_64_GOTPCREL relocation.
+	 * """
+	 *
+	 * Apparently GOTPCRELX is used for optimization. Here we treat all of
+	 * them in the same way.
+	 *
+	 * R_X86_64_GOTPCREL: G + GOT + A - P
+	 *     G: the offset into the GOT
+	 *   GOT: the address of the GOT
+	 *     A: addend
+	 *     P: the address of the memory location being relocated
+	 *
+	 * This relocation happens when
+	 * - accessing an extern variable
+	 *   48 8b 05 xx xx xx xx    mov    0x0(%rip),%rax # load addr from GOT
+	 *   8b 00                   mov    (%rax),%eax    # load the value
+	 */
+
+#define USHELL_LOADER_GOT_SIZE 4096
+#define USHELL_LOADER_GOT_ENTRY_SIZE 8
+
+	if (!ctx->prog->got) {
+		ctx->prog->got = mmap(NULL, USHELL_LOADER_GOT_SIZE, PROT_WRITE,
+				      MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+		if (ctx->prog->got == MAP_FAILED) {
+			printf("failed to map plt\n");
+			return -1;
+		}
+		ctx->prog->got_size = USHELL_LOADER_GOT_SIZE;
+		ctx->prog->got_idx = 0;
+	}
+
+	if (ctx->prog->got_idx
+	    >= (ctx->prog->got_size / USHELL_LOADER_GOT_ENTRY_SIZE)) {
+		printf("Too many entry\n");
+		// TODO: realloc got
+		return -1;
+	}
+
+	printf("use got %d\n", ctx->prog->got_idx);
+	Elf64_Sxword reloc_addr =
+	    (Elf64_Sxword)(ctx->prog->text + rel->r_offset);
+	void *got_entry = ctx->prog->got
+			  + (ctx->prog->got_idx * USHELL_LOADER_GOT_ENTRY_SIZE);
+	memcpy(got_entry, &sym_addr, sizeof(sym_addr));
+	Elf64_Sxword offset =
+	    (Elf64_Sxword)got_entry + rel->r_addend - reloc_addr;
+	Elf64_Xword abs_offset = offset > 0 ? offset : -offset;
+	if (abs_offset > 0xFFFFFFFF) {
+		/* FIXME: we failed to locate GOT within 32bit region
+		 * relative to .text
+		 */
+		printf("got offset too large\n");
+		return -1;
+	}
+	memcpy(ctx->prog->text + rel->r_offset, &offset, sizeof(int));
+
+	ctx->prog->got_idx += 1;
 	return 0;
 }
 
@@ -375,6 +471,7 @@ static int ushell_loader_elf_relocate_symbol(struct ushell_loader_ctx *ctx)
 		}
 
 		int reloc_type = ELF64_R_TYPE(rel->r_info);
+		ret = 0;
 		switch (reloc_type) {
 		case R_X86_64_NONE:
 			break;
@@ -382,13 +479,19 @@ static int ushell_loader_elf_relocate_symbol(struct ushell_loader_ctx *ctx)
 		case R_X86_64_PLT32:
 			ret = elf_relocate_x86_64_pc32_plt32(ctx, sym, sym_addr,
 							     rel);
-			if (ret != 0) {
-				return -1;
-			}
+			break;
+		case R_X86_64_GOTPCREL:
+		case R_X86_64_GOTPCRELX:
+		case R_X86_64_REX_GOTPCRELX:
+			ret = elf_relocate_x86_64_gotpcrel(ctx, sym, sym_addr,
+							   rel);
 			break;
 		default:
 			printf("Unsupporeted relocation type: %d\n",
 			       reloc_type);
+			ret = -1;
+		}
+		if (ret != 0) {
 			return -1;
 		}
 	}
