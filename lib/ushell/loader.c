@@ -71,6 +71,16 @@ struct ushell_program {
 	uint64_t entry_off;
 };
 
+struct plt_entry {
+	char insn[6];
+	char addr[8];
+	char pad[2];
+} __attribute__((packed));
+
+struct got_entry {
+	uint64_t addr;
+};
+
 struct elf_sections {
 	Elf64_Shdr *shstr;
 	Elf64_Shdr *str;
@@ -244,7 +254,6 @@ static int elf_relocate_x86_64_pc32_plt32(struct ushell_loader_ctx *ctx,
 		 */
 
 #define USHELL_LOADER_PLT_SIZE 4096
-#define USHELL_LOADER_PLT_ENTRY_SIZE 16
 
 		if (!ctx->prog->plt) {
 			ctx->prog->plt =
@@ -260,7 +269,7 @@ static int elf_relocate_x86_64_pc32_plt32(struct ushell_loader_ctx *ctx,
 		}
 
 		if (ctx->prog->plt_idx
-		    >= (ctx->prog->plt_size / USHELL_LOADER_PLT_ENTRY_SIZE)) {
+		    >= (ctx->prog->plt_size / sizeof(struct plt_entry))) {
 			printf("Too many entry\n");
 			// TODO: realloc plt
 			return -1;
@@ -268,9 +277,8 @@ static int elf_relocate_x86_64_pc32_plt32(struct ushell_loader_ctx *ctx,
 
 		printf("use plt %d\n", ctx->prog->plt_idx);
 
-		void *plt_entry =
-		    ctx->prog->plt
-		    + ctx->prog->plt_idx * USHELL_LOADER_PLT_ENTRY_SIZE;
+		struct plt_entry *plt_entry = ctx->prog->plt;
+		plt_entry += +ctx->prog->plt_idx;
 		char code[16] = {0xff, 0x25, 0x00, 0x00, 0x00, 0x00,
 				 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 				 0x00, 0x00, 0xcc, 0xcc};
@@ -346,7 +354,6 @@ static int elf_relocate_x86_64_gotpcrel(struct ushell_loader_ctx *ctx,
 	 */
 
 #define USHELL_LOADER_GOT_SIZE 4096
-#define USHELL_LOADER_GOT_ENTRY_SIZE 8
 
 	if (!ctx->prog->got) {
 		ctx->prog->got = mmap(NULL, USHELL_LOADER_GOT_SIZE, PROT_WRITE,
@@ -360,7 +367,7 @@ static int elf_relocate_x86_64_gotpcrel(struct ushell_loader_ctx *ctx,
 	}
 
 	if (ctx->prog->got_idx
-	    >= (ctx->prog->got_size / USHELL_LOADER_GOT_ENTRY_SIZE)) {
+	    >= (ctx->prog->got_size / sizeof(struct got_entry))) {
 		printf("Too many entry\n");
 		// TODO: realloc got
 		return -1;
@@ -369,8 +376,8 @@ static int elf_relocate_x86_64_gotpcrel(struct ushell_loader_ctx *ctx,
 	printf("use got %d\n", ctx->prog->got_idx);
 	Elf64_Sxword reloc_addr =
 	    (Elf64_Sxword)(ctx->prog->text + rel->r_offset);
-	void *got_entry = ctx->prog->got
-			  + (ctx->prog->got_idx * USHELL_LOADER_GOT_ENTRY_SIZE);
+	struct got_entry *got_entry = ctx->prog->got;
+	got_entry += ctx->prog->got_idx;
 	memcpy(got_entry, &sym_addr, sizeof(sym_addr));
 	Elf64_Sxword offset =
 	    (Elf64_Sxword)got_entry + rel->r_addend - reloc_addr;
