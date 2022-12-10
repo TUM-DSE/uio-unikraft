@@ -1,7 +1,7 @@
 #include "elf.h"
 #include "reloc.h"
 
-#include <string.h> // strncpy, memcpy, memset
+#include <string.h> // strncpy, memcpy, memset, memcmp
 
 #ifdef USHELL_LOADER_TEST
 
@@ -189,6 +189,38 @@ static void dump_text(struct ushell_program *prog)
 	printf("\n");
 }
 
+static struct plt_entry *search_plt(struct ushell_loader_ctx *ctx,
+				    Elf64_Sxword addr)
+{
+	int i;
+	struct plt_entry *p = ctx->prog->plt;
+
+	for (i = 0; i < ctx->prog->plt_idx; i++, p++) {
+		if (!memcmp(&p->addr[0], &addr, sizeof(addr))) {
+			printf("plt: find %d\n", i);
+			return p;
+		}
+	}
+
+	return NULL;
+}
+
+static struct got_entry *search_got(struct ushell_loader_ctx *ctx,
+				    Elf64_Sxword addr)
+{
+	int i;
+	struct got_entry *p = ctx->prog->got;
+
+	for (i = 0; i < ctx->prog->got_idx; i++, p++) {
+		if (!memcmp(&p->addr, &addr, sizeof(addr))) {
+			printf("got: find %d\n", i);
+			return p;
+		}
+	}
+
+	return NULL;
+}
+
 static int elf_relocate_x86_64_pc32_plt32(struct ushell_loader_ctx *ctx,
 					  Elf64_Sym *sym, Elf64_Sxword sym_addr,
 					  Elf64_Rela *rel)
@@ -268,6 +300,15 @@ static int elf_relocate_x86_64_pc32_plt32(struct ushell_loader_ctx *ctx,
 			ctx->prog->plt_idx = 0;
 		}
 
+		struct plt_entry *plt_entry = search_plt(ctx, sym_addr);
+		if (plt_entry) {
+			Elf64_Sxword plt_offset = (Elf64_Sxword)plt_entry
+						  + rel->r_addend - reloc_addr;
+			memcpy(ctx->prog->text + rel->r_offset, &plt_offset,
+			       sizeof(int));
+			return 0;
+		}
+
 		if (ctx->prog->plt_idx
 		    >= (ctx->prog->plt_size / sizeof(struct plt_entry))) {
 			printf("Too many entry\n");
@@ -277,8 +318,8 @@ static int elf_relocate_x86_64_pc32_plt32(struct ushell_loader_ctx *ctx,
 
 		printf("use plt %d\n", ctx->prog->plt_idx);
 
-		struct plt_entry *plt_entry = ctx->prog->plt;
-		plt_entry += +ctx->prog->plt_idx;
+		plt_entry =
+		    (struct plt_entry *)ctx->prog->plt + ctx->prog->plt_idx;
 		char code[16] = {0xff, 0x25, 0x00, 0x00, 0x00, 0x00,
 				 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 				 0x00, 0x00, 0xcc, 0xcc};
@@ -366,6 +407,17 @@ static int elf_relocate_x86_64_gotpcrel(struct ushell_loader_ctx *ctx,
 		ctx->prog->got_idx = 0;
 	}
 
+	Elf64_Sxword reloc_addr =
+	    (Elf64_Sxword)(ctx->prog->text + rel->r_offset);
+	struct got_entry *got_entry = search_got(ctx, sym_addr);
+	if (got_entry) {
+		Elf64_Sxword got_offset =
+		    (Elf64_Sxword)got_entry + rel->r_addend - reloc_addr;
+		memcpy(ctx->prog->text + rel->r_offset, &got_offset,
+		       sizeof(int));
+		return 0;
+	}
+
 	if (ctx->prog->got_idx
 	    >= (ctx->prog->got_size / sizeof(struct got_entry))) {
 		printf("Too many entry\n");
@@ -374,10 +426,7 @@ static int elf_relocate_x86_64_gotpcrel(struct ushell_loader_ctx *ctx,
 	}
 
 	printf("use got %d\n", ctx->prog->got_idx);
-	Elf64_Sxword reloc_addr =
-	    (Elf64_Sxword)(ctx->prog->text + rel->r_offset);
-	struct got_entry *got_entry = ctx->prog->got;
-	got_entry += ctx->prog->got_idx;
+	got_entry = (struct got_entry *)ctx->prog->got + ctx->prog->got_idx;
 	memcpy(got_entry, &sym_addr, sizeof(sym_addr));
 	Elf64_Sxword offset =
 	    (Elf64_Sxword)got_entry + rel->r_addend - reloc_addr;
