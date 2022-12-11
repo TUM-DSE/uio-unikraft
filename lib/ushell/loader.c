@@ -244,7 +244,7 @@ static int elf_relocate_x86_64_pc32_plt32(struct ushell_loader_ctx *ctx,
 	 *   8b 05 xx xx xx xx : mov 0x0(%rip), %eax
 	 */
 	Elf64_Sxword reloc_addr =
-	    (Elf64_Sxword)(ctx->prog->text + rel->r_offset);
+	    (Elf64_Sxword)((char *)ctx->prog->text + rel->r_offset);
 	Elf64_Sxword offset = sym_addr + rel->r_addend - reloc_addr;
 	Elf64_Xword abs_offset = offset > 0 ? offset : -offset;
 	int sym_type = ELF64_ST_TYPE(sym->st_info);
@@ -256,7 +256,8 @@ static int elf_relocate_x86_64_pc32_plt32(struct ushell_loader_ctx *ctx,
 	if (abs_offset <= 0xFFFFFFFF) {
 		/* if offset is within 32bit, we can directly access the symbol
 		 */
-		memcpy(ctx->prog->text + rel->r_offset, &offset, sizeof(int));
+		memcpy((char *)ctx->prog->text + rel->r_offset, &offset,
+		       sizeof(int));
 	} else {
 		/* if not, we need to use PLT */
 		if (sym_type == STT_OBJECT) {
@@ -304,8 +305,8 @@ static int elf_relocate_x86_64_pc32_plt32(struct ushell_loader_ctx *ctx,
 		if (plt_entry) {
 			Elf64_Sxword plt_offset = (Elf64_Sxword)plt_entry
 						  + rel->r_addend - reloc_addr;
-			memcpy(ctx->prog->text + rel->r_offset, &plt_offset,
-			       sizeof(int));
+			memcpy((char *)ctx->prog->text + rel->r_offset,
+			       &plt_offset, sizeof(int));
 			return 0;
 		}
 
@@ -340,7 +341,7 @@ static int elf_relocate_x86_64_pc32_plt32(struct ushell_loader_ctx *ctx,
 			printf("plt offset too large\n");
 			return -1;
 		}
-		memcpy(ctx->prog->text + rel->r_offset, &plt_offset,
+		memcpy((char *)ctx->prog->text + rel->r_offset, &plt_offset,
 		       sizeof(int));
 		ctx->prog->plt_idx += 1;
 	}
@@ -413,7 +414,7 @@ static int elf_relocate_x86_64_gotpcrel(struct ushell_loader_ctx *ctx,
 	if (got_entry) {
 		Elf64_Sxword got_offset =
 		    (Elf64_Sxword)got_entry + rel->r_addend - reloc_addr;
-		memcpy(ctx->prog->text + rel->r_offset, &got_offset,
+		memcpy((char *)ctx->prog->text + rel->r_offset, &got_offset,
 		       sizeof(int));
 		return 0;
 	}
@@ -438,7 +439,7 @@ static int elf_relocate_x86_64_gotpcrel(struct ushell_loader_ctx *ctx,
 		printf("got offset too large\n");
 		return -1;
 	}
-	memcpy(ctx->prog->text + rel->r_offset, &offset, sizeof(int));
+	memcpy((char *)ctx->prog->text + rel->r_offset, &offset, sizeof(int));
 
 	ctx->prog->got_idx += 1;
 	return 0;
@@ -449,8 +450,8 @@ static Elf64_Sxword elf_get_sym_addr(struct ushell_loader_ctx *ctx,
 {
 	int sec_idx = sym->st_shndx;
 	int sym_type = ELF64_ST_TYPE(sym->st_info);
-	char *sym_name = (char *)(ctx->elf_img + ctx->sections.str->sh_offset
-				  + sym->st_name);
+	char *sym_name = (char *)ctx->elf_img
+			 + (ctx->sections.str->sh_offset + sym->st_name);
 	Elf64_Sxword sym_addr = 0;
 	switch (sym_type) {
 	case STT_NOTYPE: {
@@ -464,20 +465,21 @@ static Elf64_Sxword elf_get_sym_addr(struct ushell_loader_ctx *ctx,
 		break;
 	}
 	case STT_FUNC: {
-		sym_addr = (Elf64_Sxword)(ctx->prog->text + sym->st_value);
+		sym_addr =
+		    (Elf64_Sxword)((char *)ctx->prog->text + sym->st_value);
 		break;
 	}
 	case STT_OBJECT:
 	case STT_SECTION: {
 		if (sec_idx == ctx->sections.data_idx) {
-			sym_addr =
-			    (Elf64_Sxword)(ctx->prog->data + sym->st_value);
+			sym_addr = (Elf64_Sxword)((char *)ctx->prog->data
+						  + sym->st_value);
 		} else if (sec_idx == ctx->sections.bss_idx) {
-			sym_addr =
-			    (Elf64_Sxword)(ctx->prog->bss + sym->st_value);
+			sym_addr = (Elf64_Sxword)((char *)ctx->prog->bss
+						  + sym->st_value);
 		} else if (sec_idx == ctx->sections.rodata_idx) {
-			sym_addr =
-			    (Elf64_Sxword)(ctx->prog->rodata + sym->st_value);
+			sym_addr = (Elf64_Sxword)((char *)ctx->prog->rodata
+						  + sym->st_value);
 		} else {
 			printf("Invalid section: %d, %s\n", sec_idx, sym_name);
 			return -1;
@@ -503,7 +505,7 @@ static Elf64_Sym *elf_get_sym(struct ushell_loader_ctx *ctx, int sym_idx)
 static int ushell_loader_elf_relocate_symbol(struct ushell_loader_ctx *ctx)
 {
 	if (!ctx->sections.rela_text) {
-		// no relocation entry
+		/* no relocation entry */
 		return 0;
 	}
 
@@ -512,7 +514,8 @@ static int ushell_loader_elf_relocate_symbol(struct ushell_loader_ctx *ctx)
 			  / ctx->sections.rela_text->sh_entsize;
 	int sym_entries =
 	    ctx->sections.sym->sh_size / ctx->sections.sym->sh_entsize;
-	Elf64_Rela *rel = ctx->elf_img + ctx->sections.rela_text->sh_offset;
+	Elf64_Rela *rel =
+	    (void *)((char *)ctx->elf_img + ctx->sections.rela_text->sh_offset);
 
 	for (i = 0; i < rel_entries; i++, rel++) {
 		int sym_idx = ELF64_R_SYM(rel->r_info);
@@ -555,6 +558,8 @@ static int ushell_loader_elf_relocate_symbol(struct ushell_loader_ctx *ctx)
 	return 0;
 }
 
+/* Load a file into memory
+ */
 static void ushell_loader_map_elf_image(struct ushell_loader_ctx *ctx,
 					char *path)
 {
@@ -570,6 +575,8 @@ static void ushell_loader_map_elf_image(struct ushell_loader_ctx *ctx,
 	ctx->ehdr = ctx->elf_img;
 }
 
+/* Check if the loaded elf binary is supported elf binary
+ */
 static int ushell_loader_check_elf_header(struct ushell_loader_ctx *ctx)
 {
 	Elf64_Ehdr *ehdr = ctx->ehdr;
@@ -589,13 +596,16 @@ static int ushell_loader_check_elf_header(struct ushell_loader_ctx *ctx)
 	return 0;
 }
 
+/* Scan elf sections and search main sections
+ */
 static int ushell_loader_elf_scan_section(struct ushell_loader_ctx *ctx)
 {
 	printf("section num: %d\n", ctx->ehdr->e_shnum);
 	printf("string table idx: %d\n", ctx->ehdr->e_shstrndx);
-	Elf64_Shdr *shdr = ctx->elf_img + ctx->ehdr->e_shoff;
+	Elf64_Shdr *shdr = (void *)((char *)ctx->elf_img + ctx->ehdr->e_shoff);
 	ctx->sections.shstr = shdr + ctx->ehdr->e_shstrndx;
-	char *shstrtab = ctx->elf_img + ctx->sections.shstr->sh_offset;
+	char *shstrtab =
+	    (void *)((char *)ctx->elf_img + ctx->sections.shstr->sh_offset);
 	int i;
 	for (i = 0; i < ctx->ehdr->e_shnum; i++, shdr++) {
 		char *shname = shstrtab + shdr->sh_name;
@@ -652,6 +662,8 @@ static int mmap_and_copy_section(void **addr, size_t size, void *src)
 	return 0;
 }
 
+/* Load elf sections into memory
+ */
 static int ushell_loader_elf_load_section(struct ushell_loader_ctx *ctx)
 {
 #define __MAP_AND_COPY(SECTION, ADDR)                                          \
@@ -671,7 +683,8 @@ static int ushell_loader_elf_load_section(struct ushell_loader_ctx *ctx)
 			printf("failed to mmap text section\n");               \
 			return -1;                                             \
 		}                                                              \
-		void *src = ctx->elf_img + ctx->sections.SECTION->sh_offset;   \
+		void *src = (void *)((char *)ctx->elf_img                      \
+				     + ctx->sections.SECTION->sh_offset);      \
 		if (!strcmp(#SECTION, "bss")) {                                \
 			memset(ctx->prog->SECTION, 0, size);                   \
 		} else {                                                       \
@@ -703,15 +716,15 @@ static Elf64_Sym *ushell_loader_elf_find_sym(struct ushell_loader_ctx *ctx,
 	int i;
 	int sym_entries =
 	    ctx->sections.sym->sh_size / ctx->sections.sym->sh_entsize;
-	Elf64_Sym *sym = ctx->elf_img + ctx->sections.sym->sh_offset;
+	Elf64_Sym *sym =
+	    (void *)((char *)ctx->elf_img + ctx->sections.sym->sh_offset);
 
 	for (i = 0; i < sym_entries; i++, sym++) {
 		if (sym->st_name == 0) {
 			continue;
 		}
-		char *name =
-		    (char *)(ctx->elf_img + ctx->sections.str->sh_offset
-			     + sym->st_name);
+		char *name = (char *)(ctx->elf_img)
+			     + (ctx->sections.str->sh_offset + sym->st_name);
 		if (!strcmp(name, symname)) {
 			return sym;
 		}
@@ -798,7 +811,8 @@ static void ushell_program_run(char *prog_name, int argc, char *argv[])
 		return;
 	}
 	dump_text(prog);
-	int (*func)(int, char *[]) = prog->text + prog->entry_off;
+	int (*func)(int, char *[]) =
+	    (void *)((char *)prog->text + prog->entry_off);
 	int r = func(argc, argv);
 	printf("return value: %d\n", r);
 }
