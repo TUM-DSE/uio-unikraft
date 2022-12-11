@@ -1,6 +1,16 @@
-menuconfig LIBUSHELL
+config LIBUSHELL
 	bool "ushell"
 	default y
 	select HAVE_X86PKU
 	select LIBUKDEBUG
 	select LIBUKCONSOLE
+
+if LIBUSHELL
+menu "ushell: Configuration"
+
+config LIBUSHELL_LOADER
+	bool "Binary loader support"
+	default y
+
+endmenu
+endif

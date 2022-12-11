@@ -25,19 +25,36 @@
 #endif
 #define USHELL_PR_ERR printf
 #define USHELL_PR_WARN printf
+#define USHELL_MAP_FAILED MAP_FAILED
+
+void *ushell_alloc_memory(unsigned long size)
+{
+	return mmap(NULL, size, PROT_WRITE | PROT_EXEC | PROT_READ,
+		    MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+}
+
+void ushell_free_memory(void *addr, unsigned long size)
+{
+	munmap(addr, size);
+}
 
 #else // USHELL_LOADER_TEST
 
+#include <stdio.h>
 #include <uk/assert.h>
 #include <uk/print.h>
 
+#include "ushell_api.h"
+
 #define USHELL_ASSERT UK_ASSERT
-#define USHELL_PRINTF uk_printk
+#define USHELL_PRINTF uk_pr_info
 #define USHELL_PR_DEBUG uk_pr_debug
 #define USHELL_PR_ERR uk_pr_err
 #define USHELL_PR_WARN uk_pr_warn
+#define USHELL_MAP_FAILED (void *)-1
 
 #endif
+
 
 #define USHELL_PROG_MAX_NUM 16
 #define USHELL_PROG_NAME_MAX 16
@@ -139,24 +156,20 @@ void *ushell_symbol_get(const char *symbol)
 	return addr;
 }
 
-/* -------------------------------------------- */
-
-#ifdef USHELL_LOADER_TEST
-
 static void ushell_program_free(int idx)
 {
-	assert(idx < USHELL_PROG_MAX_NUM);
+	USHELL_ASSERT(idx < USHELL_PROG_MAX_NUM);
 	struct ushell_program *prog = &ushell_programs[idx];
-	munmap(prog->text, prog->text_size);
-	munmap(prog->data, prog->data_size);
-	munmap(prog->bss, prog->bss_size);
-	munmap(prog->rodata, prog->rodata_size);
-	munmap(prog->plt, prog->plt_size);
-	munmap(prog->got, prog->got_size);
+	ushell_free_memory(prog->text, prog->text_size);
+	ushell_free_memory(prog->data, prog->data_size);
+	ushell_free_memory(prog->bss, prog->bss_size);
+	ushell_free_memory(prog->rodata, prog->rodata_size);
+	ushell_free_memory(prog->plt, prog->plt_size);
+	ushell_free_memory(prog->got, prog->got_size);
 	memset(prog, 0, sizeof(struct ushell_program));
 }
 
-static void ushell_program_free_all()
+void ushell_program_free_all()
 {
 	int i;
 	for (i = 0; i < ushell_program_current_idx; i++) {
@@ -280,10 +293,8 @@ static int elf_relocate_x86_64_pc32_plt32(struct ushell_loader_ctx *ctx,
 
 		if (!ctx->prog->plt) {
 			ctx->prog->plt =
-			    mmap(NULL, USHELL_LOADER_PLT_SIZE,
-				 PROT_WRITE | PROT_EXEC,
-				 MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-			if (ctx->prog->plt == MAP_FAILED) {
+			    ushell_alloc_memory(USHELL_LOADER_PLT_SIZE);
+			if (ctx->prog->plt == USHELL_MAP_FAILED) {
 				USHELL_PR_ERR("ushell: failed to map plt\n");
 				return -1;
 			}
@@ -300,8 +311,8 @@ static int elf_relocate_x86_64_pc32_plt32(struct ushell_loader_ctx *ctx,
 			return 0;
 		}
 
-		if (ctx->prog->plt_idx
-		    >= (ctx->prog->plt_size / sizeof(struct plt_entry))) {
+		int plt_max_size = ctx->prog->plt_size / sizeof(struct plt_entry);
+		if (ctx->prog->plt_idx >= plt_max_size) {
 			USHELL_PR_ERR("ushell: Too many entry\n");
 			// TODO: realloc plt
 			return -1;
@@ -339,7 +350,7 @@ static int elf_relocate_x86_64_pc32_plt32(struct ushell_loader_ctx *ctx,
 }
 
 static int elf_relocate_x86_64_gotpcrel(struct ushell_loader_ctx *ctx,
-					Elf64_Sym *sym, Elf64_Sxword sym_addr,
+					Elf64_Sym *sym __attribute__((unused)), Elf64_Sxword sym_addr,
 					Elf64_Rela *rel)
 {
 
@@ -388,9 +399,8 @@ static int elf_relocate_x86_64_gotpcrel(struct ushell_loader_ctx *ctx,
 #define USHELL_LOADER_GOT_SIZE 4096
 
 	if (!ctx->prog->got) {
-		ctx->prog->got = mmap(NULL, USHELL_LOADER_GOT_SIZE, PROT_WRITE,
-				      MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-		if (ctx->prog->got == MAP_FAILED) {
+		ctx->prog->got = ushell_alloc_memory(USHELL_LOADER_GOT_SIZE);
+		if (ctx->prog->got == USHELL_MAP_FAILED) {
 			USHELL_PR_ERR("ushell: failed to map plt\n");
 			return -1;
 		}
@@ -409,8 +419,8 @@ static int elf_relocate_x86_64_gotpcrel(struct ushell_loader_ctx *ctx,
 		return 0;
 	}
 
-	if (ctx->prog->got_idx
-	    >= (ctx->prog->got_size / sizeof(struct got_entry))) {
+	int max_got_size = ctx->prog->got_size / sizeof(struct got_entry);
+	if (ctx->prog->got_idx >= max_got_size) {
 		USHELL_PR_ERR("ushell: Too many entry\n");
 		// TODO: realloc got
 		return -1;
@@ -554,19 +564,31 @@ static int ushell_loader_elf_relocate_symbol(struct ushell_loader_ctx *ctx)
 
 /* Load a file into memory
  */
-static void ushell_loader_map_elf_image(struct ushell_loader_ctx *ctx,
+static int ushell_loader_map_elf_image(struct ushell_loader_ctx *ctx,
 					char *path)
 {
-	int fd = open(path, O_RDONLY);
-	assert(fd > 0);
-	struct stat sb;
-	fstat(fd, &sb);
+	FILE *fp = fopen(path, "r");
+	if (!fp) {
+		USHELL_PR_ERR("cannot open file: %s\n", path);
+		return -1;
+	}
+	unsigned size;
+	fseek(fp, 0, SEEK_END);
+	size = ftell(fp);
+	fseek(fp, 0, SEEK_SET);
 
-	USHELL_PR_DEBUG("ushell: file: %s, size: %ld\n", path, sb.st_size);
-	ctx->elf_size = sb.st_size;
-	ctx->elf_img = mmap(NULL, sb.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
-	assert(ctx->elf_img != MAP_FAILED);
+	USHELL_PR_DEBUG("ushell: file: %s, size: %d\n", path, size);
+	ctx->elf_size = size;
+	ctx->elf_img = ushell_alloc_memory(size);
+	USHELL_ASSERT(ctx->elf_img != USHELL_MAP_FAILED);
+	size_t r = fread(ctx->elf_img, size, 1, fp);
+	if (r != 1){
+		USHELL_PR_ERR("ushell: failed to read file\n");
+		return -1;
+	}
+	fclose(fp);
 	ctx->ehdr = ctx->elf_img;
+	return 0;
 }
 
 /* Check if the loaded elf binary is supported elf binary
@@ -575,7 +597,7 @@ static int ushell_loader_check_elf_header(struct ushell_loader_ctx *ctx)
 {
 	Elf64_Ehdr *ehdr = ctx->ehdr;
 	if (ehdr->e_ident[0] != 0x7f || ehdr->e_ident[1] != 'E'
-	    || ehdr->e_ident[2] != 'L' && ehdr->e_ident[3] != 'F') {
+	    || ehdr->e_ident[2] != 'L' || ehdr->e_ident[3] != 'F') {
 		USHELL_PR_ERR("ushell: Invalid elf magic number\n");
 		return -1;
 	}
@@ -655,11 +677,6 @@ static int ushell_loader_elf_scan_section(struct ushell_loader_ctx *ctx)
 	return 0;
 }
 
-static int mmap_and_copy_section(void **addr, size_t size, void *src)
-{
-	return 0;
-}
-
 /* Load elf sections into memory
  */
 static int ushell_loader_elf_load_section(struct ushell_loader_ctx *ctx)
@@ -674,11 +691,9 @@ static int ushell_loader_elf_load_section(struct ushell_loader_ctx *ctx)
 			break;                                                 \
 		}                                                              \
 		ctx->prog->SECTION##_size = size;                              \
-		ctx->prog->SECTION =                                           \
-		    mmap(ADDR, size, PROT_WRITE | PROT_EXEC | PROT_READ,       \
-			 MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);                  \
-		if (ctx->prog->SECTION == MAP_FAILED) {                        \
-			USHELL_PR_ERR("failed to mmap text section\n");        \
+		ctx->prog->SECTION = ushell_alloc_memory(size);                \
+		if (ctx->prog->SECTION == USHELL_MAP_FAILED) {                 \
+			USHELL_PR_ERR("failed to map text section\n");         \
 			return -1;                                             \
 		}                                                              \
 		void *src = (void *)((char *)ctx->elf_img                      \
@@ -690,18 +705,10 @@ static int ushell_loader_elf_load_section(struct ushell_loader_ctx *ctx)
 		}                                                              \
 	} while (0)
 
-#if 1
 	__MAP_AND_COPY(text, NULL);
 	__MAP_AND_COPY(data, NULL);
 	__MAP_AND_COPY(bss, NULL);
 	__MAP_AND_COPY(rodata, NULL);
-#else
-	// map in lower 32-bit memory region (for debug)
-	__MAP_AND_COPY(text, (void *)0x10000);
-	__MAP_AND_COPY(data, (void *)0x20000);
-	__MAP_AND_COPY(bss, (void *)0x30000);
-	__MAP_AND_COPY(rodata, (void *)0x40000);
-#endif
 
 #undef __MAP_AND_COPY
 
@@ -744,7 +751,7 @@ static int ushell_loader_elf_find_entry(struct ushell_loader_ctx *ctx)
 	return 0;
 }
 
-static int ushell_loader_load_elf(char *path)
+int ushell_loader_load_elf(char *path)
 {
 	int ret = 0, r;
 	if (ushell_program_current_idx >= USHELL_PROG_MAX_NUM) {
@@ -758,7 +765,11 @@ static int ushell_loader_load_elf(char *path)
 	ushell_program_current_idx += 1;
 	ushell_program_init(&ctx, path);
 
-	ushell_loader_map_elf_image(&ctx, path);
+	r = ushell_loader_map_elf_image(&ctx, path);
+	if (r != 0) {
+		USHELL_PR_ERR("ushell: failed to load file\n");
+		goto err;
+	}
 
 	r = ushell_loader_check_elf_header(&ctx);
 	if (r != 0) {
@@ -791,7 +802,7 @@ static int ushell_loader_load_elf(char *path)
 	}
 
 end:
-	munmap(ctx.elf_img, ctx.elf_size);
+	ushell_free_memory(ctx.elf_img, ctx.elf_size);
 	return ret;
 
 err:
@@ -801,7 +812,7 @@ err:
 	goto end;
 }
 
-static int ushell_program_run(char *prog_name, int argc, char *argv[],
+int ushell_program_run(char *prog_name, int argc, char *argv[],
 			      int *retval)
 {
 	struct ushell_program *prog = ushell_program_find(prog_name);
@@ -809,7 +820,9 @@ static int ushell_program_run(char *prog_name, int argc, char *argv[],
 		USHELL_PR_ERR("ushell: program not found: %s\n", prog_name);
 		return -1;
 	}
+#if 0
 	dump_text(prog);
+#endif
 	USHELL_PR_DEBUG("ushell: program run: %s\n", prog_name);
 	int (*func)(int, char *[]) =
 	    (void *)((char *)prog->text + prog->entry_off);
@@ -821,6 +834,10 @@ static int ushell_program_run(char *prog_name, int argc, char *argv[],
 	return 0;
 }
 
+/* -------------------------------------------- */
+
+#ifdef USHELL_LOADER_TEST
+
 int main(int argc, char *argv[])
 {
 	if (argc == 1) {
@@ -830,7 +847,7 @@ int main(int argc, char *argv[])
 	char *prog = argv[1];
 
 	int r = ushell_loader_load_elf(prog);
-	assert(r == 0);
+	USHELL_ASSERT(r == 0);
 	ushell_program_run(prog, argc - 1, argv + 1, NULL);
 	ushell_program_free_all();
 

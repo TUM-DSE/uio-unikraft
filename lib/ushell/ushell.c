@@ -30,8 +30,8 @@ int ushell_mounted;
 
 void *ushell_alloc_memory(unsigned long size)
 {
-	void *addr = NULL;
 	unsigned pages = (size + PAGE_SIZE) / PAGE_SIZE;
+	void *addr = NULL;
 
 #ifdef _USE_MMAP
 	addr = mmap(NULL, size, PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANON,
@@ -44,10 +44,14 @@ void *ushell_alloc_memory(unsigned long size)
 #else
 	struct uk_pagetable *pt = ukplat_pt_get_active();
 	// FIXME: find proper vaddr
-	addr = (void *)0x80000000;
+	static void *base_addr = (void *)0x80000000;
+	addr = base_addr;
 	int rc = ukplat_page_map(pt, (long long)addr, __PADDR_ANY, pages,
-				 PAGE_ATTR_PROT_WRITE | PAGE_ATTR_PROT_EXEC, 0);
+				 PAGE_ATTR_PROT_READ | PAGE_ATTR_PROT_WRITE
+				     | PAGE_ATTR_PROT_EXEC,
+				 0);
 	UK_ASSERT(rc == 0);
+	base_addr = (char *)addr + (pages * PAGE_SIZE);
 #endif
 	UK_ASSERT(addr);
 	return addr;
@@ -151,6 +155,29 @@ static void ushell_cat(int argc, char *argv[])
 
 static void ushell_run(int argc, char *argv[])
 {
+	char *cmd;
+	char buf[128];
+	if (argc == 0 || argv[0][0] == '\0') {
+		ushell_puts("Usage: run <cmd> [args]\n");
+		return;
+	}
+	cmd = argv[0];
+
+#if 1
+	int r, retval;
+	r = ushell_loader_load_elf(cmd);
+	if (r != 0) {
+		ushell_puts("load error\n");
+		return;
+	}
+	r = ushell_program_run(cmd, argc, argv, &retval);
+	if (r == 0) {
+		snprintf(buf, sizeof(buf), "%d\n", retval);
+		ushell_puts(buf);
+	}
+	ushell_program_free_all();
+
+#else // old version
 	FILE *fp;
 	char buf[128];
 	char *cmd;
@@ -191,6 +218,7 @@ static void ushell_run(int argc, char *argv[])
 	ushell_puts(buf);
 
 	ushell_free_memory(code, size);
+#endif
 }
 
 #endif /* CONFIG_HAVE_LIBC */
