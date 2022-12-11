@@ -12,5 +12,9 @@ config LIBUSHELL_LOADER
 	bool "Binary loader support"
 	default y
 
+config LIBUSHELL_FSDEV
+	string "Default 9p device to mount when ushell is attached"
+	default "fs0"
+
 endmenu
 endif
