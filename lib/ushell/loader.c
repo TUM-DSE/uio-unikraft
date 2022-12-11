@@ -4,6 +4,9 @@
 #include <string.h> // strncpy, memcpy, memset, memcmp
 
 #ifdef USHELL_LOADER_TEST
+/* To test the loader
+ * cc -DUSHELL_LOADER_TEST -o loader loader.c
+ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -11,42 +14,28 @@
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
-#define UK_ASSERT assert
-#define USHELL_LOADER_PRRINT printf
+#define USHELL_ASSERT assert
+#define USHELL_PRINTF printf
 #if 1
-#define USHELL_LOADER_PR_DEBUG printf
+#define USHELL_PR_DEBUG printf
 #else
-#define USHELL_LOADER_PR_DEBUG(...)                                            \
+#define USHELL_PR_DEBUG(...)                                                   \
 	do {                                                                   \
 	} while (0)
 #endif
-#define USHELL_LOADER_PR_ERR printf
-#define USHELL_LOADER_PR_WARN printf
-
-void *ushell_alloc_memory(unsigned long size)
-{
-	return malloc(size);
-}
-
-void ushell_free_memory(void *addr, unsigned long size __attribute__((unused)))
-{
-	free(addr);
-}
+#define USHELL_PR_ERR printf
+#define USHELL_PR_WARN printf
 
 #else // USHELL_LOADER_TEST
 
-#include <ushell/ushell.h>
-#include "ushell_api.h"
-
 #include <uk/assert.h>
 #include <uk/print.h>
-#include <uk/essentials.h>
-#include <uk/arch/limits.h>
 
-#define USHELL_LOADER_PRRINT uk_printk
-#define USHELL_LOADER_PR_DEBUG uk_pr_debug
-#define USHELL_LOADER_PR_ERR uk_pr_err
-#define USHELL_LOADER_PR_WARN uk_pr_warn
+#define USHELL_ASSERT UK_ASSERT
+#define USHELL_PRINTF uk_printk
+#define USHELL_PR_DEBUG uk_pr_debug
+#define USHELL_PR_ERR uk_pr_err
+#define USHELL_PR_WARN uk_pr_warn
 
 #endif
 
@@ -122,7 +111,7 @@ static struct ushell_program *ushell_program_find(char *name)
 static void ushell_program_init(struct ushell_loader_ctx *ctx, char *name)
 {
 	if (ushell_program_find(name) != NULL) {
-		USHELL_LOADER_PR_WARN("program %s is already loaded\n", name);
+		USHELL_PR_WARN("program %s is already loaded\n", name);
 	}
 	memset(ctx->prog, 0, sizeof(struct ushell_program));
 	memcpy(ctx->prog->name, name, USHELL_PROG_NAME_MAX);
@@ -139,7 +128,7 @@ void *ushell_symbol_get(const char *symbol)
 {
 	void *addr = NULL;
 
-	UK_ASSERT(symbol);
+	USHELL_ASSERT(symbol);
 
 	if (!strcmp(symbol, "ushell_loader_test_func")) {
 		addr = (void *)ushell_loader_test_func;
@@ -179,14 +168,14 @@ static void dump_text(struct ushell_program *prog)
 {
 	size_t i;
 	char *p = prog->text;
-	printf("text size: %ld\n", prog->text_size);
+	USHELL_PRINTF("text size: %ld\n", prog->text_size);
 	for (i = 0; i < prog->text_size; i++) {
-		printf("%02X ", *p++ & 0xFF);
+		USHELL_PRINTF("%02X ", *p++ & 0xFF);
 		if ((i + 1) % 16 == 0) {
-			printf("\n");
+			USHELL_PRINTF("\n");
 		}
 	}
-	printf("\n");
+	USHELL_PRINTF("\n");
 }
 
 static struct plt_entry *search_plt(struct ushell_loader_ctx *ctx,
@@ -197,7 +186,7 @@ static struct plt_entry *search_plt(struct ushell_loader_ctx *ctx,
 
 	for (i = 0; i < ctx->prog->plt_idx; i++, p++) {
 		if (!memcmp(&p->addr[0], &addr, sizeof(addr))) {
-			printf("plt: find %d\n", i);
+			USHELL_PR_DEBUG("ushell: plt: find %d\n", i);
 			return p;
 		}
 	}
@@ -213,7 +202,7 @@ static struct got_entry *search_got(struct ushell_loader_ctx *ctx,
 
 	for (i = 0; i < ctx->prog->got_idx; i++, p++) {
 		if (!memcmp(&p->addr, &addr, sizeof(addr))) {
-			printf("got: find %d\n", i);
+			USHELL_PR_DEBUG("ushell: got: find %d\n", i);
 			return p;
 		}
 	}
@@ -248,11 +237,11 @@ static int elf_relocate_x86_64_pc32_plt32(struct ushell_loader_ctx *ctx,
 	Elf64_Sxword offset = sym_addr + rel->r_addend - reloc_addr;
 	Elf64_Xword abs_offset = offset > 0 ? offset : -offset;
 	int sym_type = ELF64_ST_TYPE(sym->st_info);
-	printf("Relocation: location: %ld, "
-	       "sym position: %ld, "
-	       "addend: %ld, "
-	       "offset=%lx\n",
-	       rel->r_offset, sym->st_value, rel->r_addend, offset);
+	USHELL_PR_DEBUG("Relocation: location: %ld, "
+			"sym position: %ld, "
+			"addend: %ld, "
+			"offset=%lx\n",
+			rel->r_offset, sym->st_value, rel->r_addend, offset);
 	if (abs_offset <= 0xFFFFFFFF) {
 		/* if offset is within 32bit, we can directly access the symbol
 		 */
@@ -270,8 +259,9 @@ static int elf_relocate_x86_64_pc32_plt32(struct ushell_loader_ctx *ctx,
 			 *
 			 * (gcc uses R_X86_64_REX_GOTPCRELX)
 			 */
-			printf("Cannot relocate symbol object with 64bit "
-			       "offset\n");
+			USHELL_PR_ERR(
+			    "ushell: Cannot relocate symbol object with 64bit "
+			    "offset\n");
 			return -1;
 		}
 		/*
@@ -294,7 +284,7 @@ static int elf_relocate_x86_64_pc32_plt32(struct ushell_loader_ctx *ctx,
 				 PROT_WRITE | PROT_EXEC,
 				 MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 			if (ctx->prog->plt == MAP_FAILED) {
-				printf("failed to map plt\n");
+				USHELL_PR_ERR("ushell: failed to map plt\n");
 				return -1;
 			}
 			ctx->prog->plt_size = USHELL_LOADER_PLT_SIZE;
@@ -312,12 +302,12 @@ static int elf_relocate_x86_64_pc32_plt32(struct ushell_loader_ctx *ctx,
 
 		if (ctx->prog->plt_idx
 		    >= (ctx->prog->plt_size / sizeof(struct plt_entry))) {
-			printf("Too many entry\n");
+			USHELL_PR_ERR("ushell: Too many entry\n");
 			// TODO: realloc plt
 			return -1;
 		}
 
-		printf("use plt %d\n", ctx->prog->plt_idx);
+		USHELL_PR_DEBUG("ushell: use plt %d\n", ctx->prog->plt_idx);
 
 		plt_entry =
 		    (struct plt_entry *)ctx->prog->plt + ctx->prog->plt_idx;
@@ -338,7 +328,7 @@ static int elf_relocate_x86_64_pc32_plt32(struct ushell_loader_ctx *ctx,
 			/* FIXME: we failed to locate PLT within 32bit region
 			 * relative to .text
 			 */
-			printf("plt offset too large\n");
+			USHELL_PR_ERR("ushell: plt offset too large\n");
 			return -1;
 		}
 		memcpy((char *)ctx->prog->text + rel->r_offset, &plt_offset,
@@ -401,7 +391,7 @@ static int elf_relocate_x86_64_gotpcrel(struct ushell_loader_ctx *ctx,
 		ctx->prog->got = mmap(NULL, USHELL_LOADER_GOT_SIZE, PROT_WRITE,
 				      MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 		if (ctx->prog->got == MAP_FAILED) {
-			printf("failed to map plt\n");
+			USHELL_PR_ERR("ushell: failed to map plt\n");
 			return -1;
 		}
 		ctx->prog->got_size = USHELL_LOADER_GOT_SIZE;
@@ -421,12 +411,12 @@ static int elf_relocate_x86_64_gotpcrel(struct ushell_loader_ctx *ctx,
 
 	if (ctx->prog->got_idx
 	    >= (ctx->prog->got_size / sizeof(struct got_entry))) {
-		printf("Too many entry\n");
+		USHELL_PR_ERR("ushell: Too many entry\n");
 		// TODO: realloc got
 		return -1;
 	}
 
-	printf("use got %d\n", ctx->prog->got_idx);
+	USHELL_PR_DEBUG("ushell: use got %d\n", ctx->prog->got_idx);
 	got_entry = (struct got_entry *)ctx->prog->got + ctx->prog->got_idx;
 	memcpy(got_entry, &sym_addr, sizeof(sym_addr));
 	Elf64_Sxword offset =
@@ -436,7 +426,7 @@ static int elf_relocate_x86_64_gotpcrel(struct ushell_loader_ctx *ctx,
 		/* FIXME: we failed to locate GOT within 32bit region
 		 * relative to .text
 		 */
-		printf("got offset too large\n");
+		USHELL_PR_ERR("ushell: got offset too large\n");
 		return -1;
 	}
 	memcpy((char *)ctx->prog->text + rel->r_offset, &offset, sizeof(int));
@@ -457,10 +447,11 @@ static Elf64_Sxword elf_get_sym_addr(struct ushell_loader_ctx *ctx,
 	case STT_NOTYPE: {
 		void *addr = ushell_symbol_get(sym_name);
 		if (addr == NULL) {
-			printf("Cannot resolve symbol: %s\n", sym_name);
+			USHELL_PR_ERR("ushell: Cannot resolve symbol: %s\n",
+				      sym_name);
 			return -1;
 		}
-		printf("symaddr: %s = %p\n", sym_name, addr);
+		USHELL_PR_DEBUG("ushell: symaddr: %s = %p\n", sym_name, addr);
 		sym_addr = (Elf64_Sxword)addr;
 		break;
 	}
@@ -481,14 +472,16 @@ static Elf64_Sxword elf_get_sym_addr(struct ushell_loader_ctx *ctx,
 			sym_addr = (Elf64_Sxword)((char *)ctx->prog->rodata
 						  + sym->st_value);
 		} else {
-			printf("Invalid section: %d, %s\n", sec_idx, sym_name);
+			USHELL_PR_ERR("ushell: Invalid section: %d, %s\n",
+				      sec_idx, sym_name);
 			return -1;
 		}
 		break;
 	}
 	default: {
-		printf("Unsupported sym type: sym_type=%d, sym_name=%s\n",
-		       sym_type, sym_name);
+		USHELL_PR_ERR(
+		    "ushell: Unsupported sym type: sym_type=%d, sym_name=%s\n",
+		    sym_type, sym_name);
 		return -1;
 	}
 	}
@@ -520,7 +513,7 @@ static int ushell_loader_elf_relocate_symbol(struct ushell_loader_ctx *ctx)
 	for (i = 0; i < rel_entries; i++, rel++) {
 		int sym_idx = ELF64_R_SYM(rel->r_info);
 		if (sym_idx == SHN_UNDEF || sym_idx >= sym_entries) {
-			printf("Unsupported relocation entry\n");
+			USHELL_PR_ERR("ushell: Unsupported relocation entry\n");
 			continue;
 		}
 		Elf64_Sym *sym = elf_get_sym(ctx, sym_idx);
@@ -546,8 +539,9 @@ static int ushell_loader_elf_relocate_symbol(struct ushell_loader_ctx *ctx)
 							   rel);
 			break;
 		default:
-			printf("Unsupporeted relocation type: %d\n",
-			       reloc_type);
+			USHELL_PR_ERR(
+			    "ushell: Unsupporeted relocation type: %d\n",
+			    reloc_type);
 			ret = -1;
 		}
 		if (ret != 0) {
@@ -568,7 +562,7 @@ static void ushell_loader_map_elf_image(struct ushell_loader_ctx *ctx,
 	struct stat sb;
 	fstat(fd, &sb);
 
-	printf("file: %s, size: %ld\n", path, sb.st_size);
+	USHELL_PR_DEBUG("ushell: file: %s, size: %ld\n", path, sb.st_size);
 	ctx->elf_size = sb.st_size;
 	ctx->elf_img = mmap(NULL, sb.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
 	assert(ctx->elf_img != MAP_FAILED);
@@ -582,15 +576,17 @@ static int ushell_loader_check_elf_header(struct ushell_loader_ctx *ctx)
 	Elf64_Ehdr *ehdr = ctx->ehdr;
 	if (ehdr->e_ident[0] != 0x7f || ehdr->e_ident[1] != 'E'
 	    || ehdr->e_ident[2] != 'L' && ehdr->e_ident[3] != 'F') {
-		printf("Invalid elf magic number\n");
+		USHELL_PR_ERR("ushell: Invalid elf magic number\n");
 		return -1;
 	}
 	if (ehdr->e_machine != EM_AMD64) {
-		printf("Unsupported elf machine: %d\n", ehdr->e_machine);
+		USHELL_PR_ERR("ushell: Unsupported elf machine: %d\n",
+			      ehdr->e_machine);
 		return -1;
 	}
 	if (ehdr->e_type != ET_REL) {
-		printf("Unsupported elf type: %d\n", ehdr->e_type);
+		USHELL_PR_ERR("ushell: Unsupported elf type: %d\n",
+			      ehdr->e_type);
 		return -1;
 	}
 	return 0;
@@ -600,8 +596,9 @@ static int ushell_loader_check_elf_header(struct ushell_loader_ctx *ctx)
  */
 static int ushell_loader_elf_scan_section(struct ushell_loader_ctx *ctx)
 {
-	printf("section num: %d\n", ctx->ehdr->e_shnum);
-	printf("string table idx: %d\n", ctx->ehdr->e_shstrndx);
+	USHELL_PR_DEBUG("ushell: section num: %d\n", ctx->ehdr->e_shnum);
+	USHELL_PR_DEBUG("ushell: string table idx: %d\n",
+			ctx->ehdr->e_shstrndx);
 	Elf64_Shdr *shdr = (void *)((char *)ctx->elf_img + ctx->ehdr->e_shoff);
 	ctx->sections.shstr = shdr + ctx->ehdr->e_shstrndx;
 	char *shstrtab =
@@ -609,7 +606,7 @@ static int ushell_loader_elf_scan_section(struct ushell_loader_ctx *ctx)
 	int i;
 	for (i = 0; i < ctx->ehdr->e_shnum; i++, shdr++) {
 		char *shname = shstrtab + shdr->sh_name;
-		printf("seciton %d: %s\n", i, shname);
+		USHELL_PR_DEBUG("ushell: seciton %d: %s\n", i, shname);
 		if (!strcmp(shname, ".text") && shdr->sh_type == SHT_PROGBITS) {
 			ctx->sections.text = shdr;
 			ctx->sections.text_idx = i;
@@ -637,21 +634,22 @@ static int ushell_loader_elf_scan_section(struct ushell_loader_ctx *ctx)
 		} else if (strcmp(shname, ".rela.eh_frame") != 0
 			   && (shdr->sh_type == SHT_REL
 			       || shdr->sh_type == SHT_RELA)) {
-			printf("!!! unsupported relocation entry: %s\n",
-			       shname);
+			USHELL_PR_ERR(
+			    "ushell: unsupported relocation entry: %s\n",
+			    shname);
 		}
 	}
 
 	if (ctx->sections.text == NULL) {
-		printf("could not find .text section\n");
+		USHELL_PR_ERR("ushell: could not find .text section\n");
 		return -1;
 	}
 	if (ctx->sections.sym == NULL) {
-		printf("could not find .symtab section\n");
+		USHELL_PR_ERR("ushell: could not find .symtab section\n");
 		return -1;
 	}
 	if (ctx->sections.str == NULL) {
-		printf("could not find .strtab section\n");
+		USHELL_PR_ERR("ushell: could not find .strtab section\n");
 		return -1;
 	}
 	return 0;
@@ -680,7 +678,7 @@ static int ushell_loader_elf_load_section(struct ushell_loader_ctx *ctx)
 		    mmap(ADDR, size, PROT_WRITE | PROT_EXEC | PROT_READ,       \
 			 MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);                  \
 		if (ctx->prog->SECTION == MAP_FAILED) {                        \
-			printf("failed to mmap text section\n");               \
+			USHELL_PR_ERR("failed to mmap text section\n");        \
 			return -1;                                             \
 		}                                                              \
 		void *src = (void *)((char *)ctx->elf_img                      \
@@ -737,7 +735,7 @@ static int ushell_loader_elf_find_entry(struct ushell_loader_ctx *ctx)
 	Elf64_Sym *main_sym = ushell_loader_elf_find_sym(ctx, "main");
 
 	if (main_sym == NULL) {
-		printf("no main symbol\n");
+		USHELL_PR_ERR("ushell: no main symbol\n");
 		return -1;
 	}
 
@@ -750,7 +748,7 @@ static int ushell_loader_load_elf(char *path)
 {
 	int ret = 0, r;
 	if (ushell_program_current_idx >= USHELL_PROG_MAX_NUM) {
-		printf("reach program loading limit\n");
+		USHELL_PR_ERR("ushell: reach program loading limit\n");
 		return -1;
 	}
 
@@ -764,31 +762,31 @@ static int ushell_loader_load_elf(char *path)
 
 	r = ushell_loader_check_elf_header(&ctx);
 	if (r != 0) {
-		printf("invalid program binary\n");
+		USHELL_PR_ERR("ushell: invalid program binary\n");
 		goto err;
 	}
 
 	r = ushell_loader_elf_scan_section(&ctx);
 	if (r != 0) {
-		printf("failed to scan sections\n");
+		USHELL_PR_ERR("ushell: failed to scan sections\n");
 		goto err;
 	}
 
 	r = ushell_loader_elf_load_section(&ctx);
 	if (r != 0) {
-		printf("failed to load sections\n");
+		USHELL_PR_ERR("ushell: failed to load sections\n");
 		goto err;
 	}
 
 	r = ushell_loader_elf_relocate_symbol(&ctx);
 	if (r != 0) {
-		printf("failed to relocate symbols\n");
+		USHELL_PR_ERR("ushell: failed to relocate symbols\n");
 		goto err;
 	}
 
 	r = ushell_loader_elf_find_entry(&ctx);
 	if (r != 0) {
-		printf("failed to find main entry point\n");
+		USHELL_PR_ERR("ushell: failed to find main entry point\n");
 		goto err;
 	}
 
@@ -803,31 +801,37 @@ err:
 	goto end;
 }
 
-static void ushell_program_run(char *prog_name, int argc, char *argv[])
+static int ushell_program_run(char *prog_name, int argc, char *argv[],
+			      int *retval)
 {
 	struct ushell_program *prog = ushell_program_find(prog_name);
 	if (!prog) {
-		printf("program not found: %s\n", prog_name);
-		return;
+		USHELL_PR_ERR("ushell: program not found: %s\n", prog_name);
+		return -1;
 	}
 	dump_text(prog);
+	USHELL_PR_DEBUG("ushell: program run: %s\n", prog_name);
 	int (*func)(int, char *[]) =
 	    (void *)((char *)prog->text + prog->entry_off);
 	int r = func(argc, argv);
-	printf("return value: %d\n", r);
+	USHELL_PR_DEBUG("ushell: return value: %d\n", r);
+	if (retval) {
+		*retval = r;
+	}
+	return 0;
 }
 
 int main(int argc, char *argv[])
 {
 	if (argc == 1) {
-		printf("Usage: %s <prog> [args...]\n", argv[0]);
+		USHELL_PRINTF("Usage: %s <prog> [args...]\n", argv[0]);
 		return 0;
 	}
 	char *prog = argv[1];
 
 	int r = ushell_loader_load_elf(prog);
 	assert(r == 0);
-	ushell_program_run(prog, argc - 1, argv + 1);
+	ushell_program_run(prog, argc - 1, argv + 1, NULL);
 	ushell_program_free_all();
 
 	return 0;
