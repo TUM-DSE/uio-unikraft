@@ -1,0 +1,53 @@
+# vim: set ft=make et tw=0 :
+
+default := 'hello'
+cc_ := 'gcc'
+
+default:
+    @just --choose
+
+compile_loader cc=cc_:
+    {{cc}} -fsanitize=address -DUSHELL_LOADER_TEST \
+           -o loader loader.c
+
+# -fpie: compilers use R_X86_64_PC32 instead of R_X86_64_REX_GOTPCRELX
+#        however, clang uses R_X86_64_REX_GOTPCRELX for external variables
+#   (gcc uses R_X86_64_PC32 even if accessing external variables)
+
+compile_test target=default cc=cc_:
+    {{cc}} -O0 -fPIC \
+        -c -o test/{{target}}_{{cc}}.o test/{{target}}.c
+
+compile_all_clang:
+    @just compile_test 'add'    'clang'
+    @just compile_test 'add2'   'clang'
+    @just compile_test 'foo'    'clang'
+    @just compile_test 'global' 'clang'
+    @just compile_test 'data'   'clang'
+    @just compile_test 'bss'    'clang'
+    @just compile_test 'rodata' 'clang'
+    @just compile_test 'call'   'clang'
+    @just compile_test 'hello'  'clang'
+
+compile_all:
+    @just compile_test 'add'
+    @just compile_test 'add2'
+    @just compile_test 'foo'
+    @just compile_test 'global'
+    @just compile_test 'data'
+    @just compile_test 'bss'
+    @just compile_test 'rodata'
+    @just compile_test 'call'
+    @just compile_test 'hello'
+
+compile_jump_test:
+    gcc -fsanitize=address -g -o test/jump_test test/jump_test.c
+
+jump_test cc=cc_: compile_jump_test
+    ./test/jump_test
+
+show_rel_info target=default cc=cc_: (compile_test target)
+    readelf -r ./test/{{target}}_{{cc}}.o
+
+loader_test target=default cc=cc_: compile_loader (compile_test target)
+    ./loader ./test/{{target}}_{{cc}}.o
