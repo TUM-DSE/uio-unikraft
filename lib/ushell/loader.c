@@ -38,6 +38,11 @@ void ushell_free_memory(void *addr, unsigned long size)
 	munmap(addr, size);
 }
 
+void ushell_puts(char *str)
+{
+	puts(str);
+}
+
 #else // USHELL_LOADER_TEST
 
 #include <stdio.h>
@@ -54,7 +59,6 @@ void ushell_free_memory(void *addr, unsigned long size)
 #define USHELL_MAP_FAILED (void *)-1
 
 #endif
-
 
 #define USHELL_PROG_MAX_NUM 16
 #define USHELL_PROG_NAME_MAX 16
@@ -151,6 +155,8 @@ void *ushell_symbol_get(const char *symbol)
 		addr = (void *)ushell_loader_test_func;
 	} else if (!strcmp(symbol, "ushell_loader_test_data")) {
 		addr = (void *)&ushell_loader_test_data;
+	} else if (!strcmp(symbol, "ushell_puts")) {
+		addr = (void *)&ushell_puts;
 	}
 
 	return addr;
@@ -311,7 +317,8 @@ static int elf_relocate_x86_64_pc32_plt32(struct ushell_loader_ctx *ctx,
 			return 0;
 		}
 
-		int plt_max_size = ctx->prog->plt_size / sizeof(struct plt_entry);
+		int plt_max_size =
+		    ctx->prog->plt_size / sizeof(struct plt_entry);
 		if (ctx->prog->plt_idx >= plt_max_size) {
 			USHELL_PR_ERR("ushell: Too many entry\n");
 			// TODO: realloc plt
@@ -350,8 +357,8 @@ static int elf_relocate_x86_64_pc32_plt32(struct ushell_loader_ctx *ctx,
 }
 
 static int elf_relocate_x86_64_gotpcrel(struct ushell_loader_ctx *ctx,
-					Elf64_Sym *sym __attribute__((unused)), Elf64_Sxword sym_addr,
-					Elf64_Rela *rel)
+					Elf64_Sym *sym __attribute__((unused)),
+					Elf64_Sxword sym_addr, Elf64_Rela *rel)
 {
 
 	/*
@@ -565,7 +572,7 @@ static int ushell_loader_elf_relocate_symbol(struct ushell_loader_ctx *ctx)
 /* Load a file into memory
  */
 static int ushell_loader_map_elf_image(struct ushell_loader_ctx *ctx,
-					char *path)
+				       char *path)
 {
 	FILE *fp = fopen(path, "r");
 	if (!fp) {
@@ -582,7 +589,7 @@ static int ushell_loader_map_elf_image(struct ushell_loader_ctx *ctx,
 	ctx->elf_img = ushell_alloc_memory(size);
 	USHELL_ASSERT(ctx->elf_img != USHELL_MAP_FAILED);
 	size_t r = fread(ctx->elf_img, size, 1, fp);
-	if (r != 1){
+	if (r != 1) {
 		USHELL_PR_ERR("ushell: failed to read file\n");
 		return -1;
 	}
@@ -812,8 +819,7 @@ err:
 	goto end;
 }
 
-int ushell_program_run(char *prog_name, int argc, char *argv[],
-			      int *retval)
+int ushell_program_run(char *prog_name, int argc, char *argv[], int *retval)
 {
 	struct ushell_program *prog = ushell_program_find(prog_name);
 	if (!prog) {

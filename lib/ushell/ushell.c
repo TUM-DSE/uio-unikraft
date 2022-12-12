@@ -80,7 +80,7 @@ static void ushell_puts_n(char *str, size_t len)
 	uk_console_puts(str, len);
 }
 
-static void ushell_puts(char *str)
+void ushell_puts(char *str)
 {
 	size_t len = strlen(str);
 	ushell_puts_n(str, len);

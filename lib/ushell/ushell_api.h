@@ -12,6 +12,8 @@ int ushell_loader_load_elf(char *path);
 int ushell_program_run(char *prog_name, int argc, char *argv[], int *retval);
 void ushell_program_free_all();
 
+void ushell_puts(char *str);
+
 #ifdef __cplusplus
 }
 #endif
