@@ -2,6 +2,7 @@
 #include "reloc.h"
 
 #include <string.h> // strncpy, memcpy, memset, memcmp
+#include <stdlib.h> // strtol
 
 #ifdef USHELL_LOADER_TEST
 /* To test the loader
@@ -114,6 +115,11 @@ struct ushell_loader_ctx {
 	struct ushell_program *prog;
 };
 
+struct ushell_symbol_table {
+	char name[120];
+	void *addr;
+};
+
 int ushell_program_current_idx;
 struct ushell_program ushell_programs[USHELL_PROG_MAX_NUM];
 
@@ -145,12 +151,83 @@ int ushell_loader_test_func(int n)
 	return n + ushell_loader_test_data;
 }
 
+int ushell_symtable_size;
+struct ushell_symbol_table *ushell_symbol_table;
+
+int ushell_load_symbol(char *path)
+{
+	int i;
+	FILE *fp;
+	char buf[256];
+
+	if (ushell_symbol_table) {
+		ushell_free_memory(ushell_symbol_table,
+				   ushell_symtable_size
+				       * sizeof(struct ushell_symbol_table));
+		ushell_symbol_table = NULL;
+		ushell_symtable_size = 0;
+	}
+
+	fp = fopen(path, "r");
+	if (fp == NULL) {
+		return -1;
+	}
+	while (fgets(buf, 256, fp) != NULL) {
+		int i;
+		for (i = 0; i < 256; i++) {
+			if (buf[i] == '\n')
+				break;
+		}
+		if (i == 256) {
+			USHELL_PR_ERR(
+			    "ushell: symbol file contains a too long line\n");
+			ushell_symtable_size = 0;
+			fclose(fp);
+			return -1;
+		}
+		ushell_symtable_size++;
+	}
+	ushell_symbol_table = ushell_alloc_memory(
+	    sizeof(struct ushell_symbol_table) * ushell_symtable_size);
+	if (!ushell_symbol_table) {
+		USHELL_PR_ERR("ushell: failed to alloc memory\n");
+		fclose(fp);
+		return -1;
+	}
+
+	fseek(fp, 0, SEEK_SET);
+	i = 0;
+	while (fgets(buf, 256, fp) != NULL) {
+		char *p, *q;
+		long long addr = strtoll(&buf[0], &p, 16);
+		q = p + 1;
+		for (p++; *p != '\n'; p++)
+			;
+		*p = '\0';
+		ushell_symbol_table[i].addr = (void *)addr;
+		strcpy(&ushell_symbol_table[i].name[0], q);
+		i++;
+	}
+	fclose(fp);
+
+	return ushell_symtable_size;
+}
+
 void *ushell_symbol_get(const char *symbol)
 {
+	int i;
 	void *addr = NULL;
 
 	USHELL_ASSERT(symbol);
 
+#if 1
+	for (i = 0; i < ushell_symtable_size; i++) {
+		if (!strcmp(ushell_symbol_table[i].name, symbol)) {
+			addr = ushell_symbol_table[i].addr;
+			break;
+		}
+	}
+#else // debug
 	if (!strcmp(symbol, "ushell_loader_test_func")) {
 		addr = (void *)ushell_loader_test_func;
 	} else if (!strcmp(symbol, "ushell_loader_test_data")) {
@@ -158,6 +235,7 @@ void *ushell_symbol_get(const char *symbol)
 	} else if (!strcmp(symbol, "ushell_puts")) {
 		addr = (void *)&ushell_puts;
 	}
+#endif
 
 	return addr;
 }
@@ -183,7 +261,7 @@ void ushell_program_free_all()
 	}
 }
 
-static void dump_text(struct ushell_program *prog)
+static void __attribute__((unused)) dump_text(struct ushell_program *prog)
 {
 	size_t i;
 	char *p = prog->text;

@@ -229,6 +229,7 @@ static void ushell_run(int argc, char *argv[])
 
 static int ushell_process_cmd(int argc, char *argv[])
 {
+	char buf[128];
 	UK_ASSERT(argc >= 1);
 	char *cmd = argv[0];
 	if (*cmd == '\0') {
@@ -241,6 +242,10 @@ static int ushell_process_cmd(int argc, char *argv[])
 	} else if (!strcmp(cmd, "cat")) {
 		ushell_cat(argc, argv);
 #endif
+	} else if (!strcmp(cmd, "load")) {
+		int r = ushell_load_symbol(argv[1]);
+		snprintf(buf, sizeof(buf), "Load %d symbols\n", r);
+		ushell_puts(buf);
 #ifdef CONFIG_LIBUKSIGNAL
 	} else if (!strcmp(cmd, "kill")) {
 		if (argc >= 2) {
