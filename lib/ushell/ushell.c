@@ -230,6 +230,10 @@ static void ushell_run(int argc, char *argv[])
 static int ushell_process_cmd(int argc, char *argv[])
 {
 	char buf[128];
+	if (argc < 1) {
+		/* no command to process */
+		return;
+	}
 	UK_ASSERT(argc >= 1);
 	char *cmd = argv[0];
 	if (*cmd == '\0') {
@@ -337,7 +341,7 @@ static int ushell_split_args(char *buf, char *args[])
 			break;
 		}
 	}
-	return i;
+	return i - 1;
 }
 
 static void ushell_cons_thread(void *arg)
