@@ -77,9 +77,13 @@ static int __read_fn(void *dst, void *src __unused, size_t *cnt)
 	count = *cnt;
 
 	do {
-		while ((bytes_read = ukplat_cink(buf,
-			count - bytes_total)) <= 0)
+		while ((bytes_read = ukplat_cink(buf, count - bytes_total))
+		       <= 0) {
+#if CONFIG_LIBUKSCHED
+			uk_sched_yield();
+#endif
 			;
+		}
 
 		buf = buf + bytes_read;
 		*(buf - 1) = *(buf - 1) == '\r' ?
