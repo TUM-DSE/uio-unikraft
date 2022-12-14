@@ -261,6 +261,19 @@ void ushell_program_free_all()
 	}
 }
 
+int ushell_program_free_prog_name(char *name)
+{
+	int i;
+	for (i = 0; i < ushell_program_current_idx; i++) {
+		if (!strcmp(ushell_programs[i].name, name)) {
+			ushell_program_free(i);
+			return 0;
+		}
+	}
+	// no such program
+	return -1;
+}
+
 static void __attribute__((unused)) dump_text(struct ushell_program *prog)
 {
 	size_t i;
@@ -901,7 +914,7 @@ int ushell_program_run(char *prog_name, int argc, char *argv[], int *retval)
 {
 	struct ushell_program *prog = ushell_program_find(prog_name);
 	if (!prog) {
-		USHELL_PR_ERR("ushell: program not found: %s\n", prog_name);
+		USHELL_PR_DEBUG("ushell: program not found: %s\n", prog_name);
 		return -1;
 	}
 #if 0

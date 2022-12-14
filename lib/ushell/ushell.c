@@ -157,6 +157,25 @@ static void ushell_cat(int argc, char *argv[])
 
 #include <sys/mman.h>
 
+static void ushell_free_all_prog(int argc, char *argv[])
+{
+	ushell_program_free_all();
+}
+
+static void ushell_free_prog(int argc, char *argv[])
+{
+	if (argc != 1) {
+		ushell_puts("Usage: free <name>\n");
+		return;
+	}
+	int r = ushell_program_free_prog_name(argv[0]);
+	if (r == 0) {
+		ushell_puts("program freed\n");
+	} else {
+		ushell_puts("no such program loaded\n");
+	}
+}
+
 static void ushell_run(int argc, char *argv[])
 {
 	char *cmd;
@@ -169,17 +188,20 @@ static void ushell_run(int argc, char *argv[])
 
 #if 1
 	int r, retval;
-	r = ushell_loader_load_elf(cmd);
-	if (r != 0) {
-		ushell_puts("load error\n");
-		return;
-	}
 	r = ushell_program_run(cmd, argc, argv, &retval);
+	if (r != 0) {
+		/* program is not loaded. load and retry */
+		r = ushell_loader_load_elf(cmd);
+		if (r != 0) {
+			ushell_puts("load error\n");
+			return;
+		}
+		r = ushell_program_run(cmd, argc, argv, &retval);
+	}
 	if (r == 0) {
 		snprintf(buf, sizeof(buf), "%d\n", retval);
 		ushell_puts(buf);
 	}
-	ushell_program_free_all();
 
 #else // old version
 	FILE *fp;
@@ -243,6 +265,10 @@ static int ushell_process_cmd(int argc, char *argv[])
 #ifdef CONFIG_HAVE_LIBC
 	} else if (!strcmp(cmd, "run")) {
 		ushell_run(argc - 1, argv + 1);
+	} else if (!strcmp(cmd, "free")) {
+		ushell_free_prog(argc - 1, argv + 1);
+	} else if (!strcmp(cmd, "free-all")) {
+		ushell_free_all_prog(argc - 1, argv + 1);
 	} else if (!strcmp(cmd, "cat")) {
 		ushell_cat(argc, argv);
 #endif
