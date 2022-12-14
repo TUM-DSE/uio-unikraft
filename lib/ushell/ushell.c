@@ -305,7 +305,7 @@ static int ushell_process_cmd(int argc, char *argv[])
 			ushell_puts("Usage: kill <num>\n");
 		}
 #endif
-#ifdef CONFIG_APPCOUNT
+#ifdef CONFIG_APPCOUNT /* built-in command example */
 	} else if (!strcmp(cmd, "set_count")) {
 		void set_count(int);
 		int n = 0;
