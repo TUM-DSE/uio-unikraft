@@ -873,8 +873,14 @@ static int ushell_loader_elf_find_entry(struct ushell_loader_ctx *ctx)
 
 int ushell_loader_load_elf(char *path)
 {
+	struct ushell_program *prog = ushell_program_find(path);
+	if (prog != NULL) {
+		/* (the same name) program already loaded */
+		return -2;
+	}
+
 	int ret = 0, r;
-	struct ushell_program *prog = find_empty_ushell_program_slot();
+	prog = find_empty_ushell_program_slot();
 	if (prog == NULL) {
 		USHELL_PR_ERR("ushell: reach program loading limit\n");
 		return -1;

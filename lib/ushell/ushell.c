@@ -176,6 +176,24 @@ static void ushell_free_prog(int argc, char *argv[])
 	}
 }
 
+static void ushell_prog_load(int argc, char *argv[])
+{
+	char *cmd;
+	if (argc == 0 || argv[0][0] == '\0') {
+		ushell_puts("Usage: prog-load <cmd>\n");
+		return;
+	}
+	cmd = argv[0];
+
+	int r = ushell_loader_load_elf(cmd);
+	if (r == -2) {
+		ushell_puts("program already loaded\n");
+	} else if (r != 0) {
+		ushell_puts("load error\n");
+	}
+	return;
+}
+
 static void ushell_run(int argc, char *argv[])
 {
 	char *cmd;
@@ -254,7 +272,7 @@ static int ushell_process_cmd(int argc, char *argv[])
 	char buf[128];
 	if (argc < 1) {
 		/* no command to process */
-		return;
+		return 0;
 	}
 	UK_ASSERT(argc >= 1);
 	char *cmd = argv[0];
@@ -263,6 +281,8 @@ static int ushell_process_cmd(int argc, char *argv[])
 	} else if (!strcmp(cmd, "ls")) {
 		ushell_listdir(argc, argv);
 #ifdef CONFIG_HAVE_LIBC
+	} else if (!strcmp(cmd, "prog-load")) {
+		ushell_prog_load(argc - 1, argv + 1);
 	} else if (!strcmp(cmd, "run")) {
 		ushell_run(argc - 1, argv + 1);
 	} else if (!strcmp(cmd, "free")) {
