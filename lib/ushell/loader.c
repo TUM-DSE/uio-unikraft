@@ -120,15 +120,31 @@ struct ushell_symbol_table {
 	void *addr;
 };
 
-int ushell_program_current_idx;
 struct ushell_program ushell_programs[USHELL_PROG_MAX_NUM];
+
+/* check if ushell_programs[idx] is used */
+static int ushell_program_active(int idx)
+{
+	return (ushell_programs[idx].name[0] != '\0');
+}
 
 static struct ushell_program *ushell_program_find(char *name)
 {
 	int i;
-	for (i = 0; i < ushell_program_current_idx; i++) {
+	for (i = 0; i < USHELL_PROG_MAX_NUM; i++) {
 		if (!strncmp(ushell_programs[i].name, name,
 			     USHELL_PROG_NAME_MAX)) {
+			return &ushell_programs[i];
+		}
+	}
+	return NULL;
+}
+
+static struct ushell_program *find_empty_ushell_program_slot()
+{
+	int i;
+	for (i = 0; i < USHELL_PROG_MAX_NUM; i++) {
+		if (!ushell_program_active(i)) {
 			return &ushell_programs[i];
 		}
 	}
@@ -240,10 +256,9 @@ void *ushell_symbol_get(const char *symbol)
 	return addr;
 }
 
-static void ushell_program_free(int idx)
+static void ushell_program_free(struct ushell_program *prog)
 {
-	USHELL_ASSERT(idx < USHELL_PROG_MAX_NUM);
-	struct ushell_program *prog = &ushell_programs[idx];
+	USHELL_ASSERT(prog != NULL);
 	ushell_free_memory(prog->text, prog->text_size);
 	ushell_free_memory(prog->data, prog->data_size);
 	ushell_free_memory(prog->bss, prog->bss_size);
@@ -253,20 +268,27 @@ static void ushell_program_free(int idx)
 	memset(prog, 0, sizeof(struct ushell_program));
 }
 
+static void ushell_program_free_idx(int idx)
+{
+	USHELL_ASSERT(idx < USHELL_PROG_MAX_NUM);
+	struct ushell_program *prog = &ushell_programs[idx];
+	ushell_program_free(prog);
+}
+
 void ushell_program_free_all()
 {
 	int i;
-	for (i = 0; i < ushell_program_current_idx; i++) {
-		ushell_program_free(i);
+	for (i = 0; i < USHELL_PROG_MAX_NUM; i++) {
+		ushell_program_free_idx(i);
 	}
 }
 
 int ushell_program_free_prog_name(char *name)
 {
 	int i;
-	for (i = 0; i < ushell_program_current_idx; i++) {
+	for (i = 0; i < USHELL_PROG_MAX_NUM; i++) {
 		if (!strcmp(ushell_programs[i].name, name)) {
-			ushell_program_free(i);
+			ushell_program_free_idx(i);
 			return 0;
 		}
 	}
@@ -852,15 +874,15 @@ static int ushell_loader_elf_find_entry(struct ushell_loader_ctx *ctx)
 int ushell_loader_load_elf(char *path)
 {
 	int ret = 0, r;
-	if (ushell_program_current_idx >= USHELL_PROG_MAX_NUM) {
+	struct ushell_program *prog = find_empty_ushell_program_slot();
+	if (prog == NULL) {
 		USHELL_PR_ERR("ushell: reach program loading limit\n");
 		return -1;
 	}
 
 	struct ushell_loader_ctx ctx = {};
 
-	ctx.prog = &ushell_programs[ushell_program_current_idx];
-	ushell_program_current_idx += 1;
+	ctx.prog = prog;
 	ushell_program_init(&ctx, path);
 
 	r = ushell_loader_map_elf_image(&ctx, path);
@@ -904,8 +926,7 @@ end:
 	return ret;
 
 err:
-	ushell_program_current_idx -= 1;
-	ushell_program_free(ushell_program_current_idx);
+	ushell_program_free(prog);
 	ret = -1;
 	goto end;
 }
