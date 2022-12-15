@@ -7,10 +7,8 @@
 #include <vfscore/mount.h>
 #include <uk/init.h>
 
-#if CONFIG_LIBUKSCHED
 #include "uk/thread.h"
 #include "uk/sched.h"
-#endif
 
 #ifdef CONFIG_LIBUKSIGNAL
 #include <uk/uk_signal.h>
@@ -133,7 +131,6 @@ static void ushell_listdir(int argc, char *argv[])
 	closedir(dp);
 }
 
-#ifdef CONFIG_HAVE_LIBC
 static void ushell_cat(int argc, char *argv[])
 {
 	FILE *fp;
@@ -157,7 +154,8 @@ static void ushell_cat(int argc, char *argv[])
 
 #include <sys/mman.h>
 
-static void ushell_free_all_prog(int argc, char *argv[])
+static void ushell_free_all_prog(int argc __attribute__((unused)),
+				 char *argv[] __attribute__((unused)))
 {
 	ushell_program_free_all();
 }
@@ -265,8 +263,6 @@ static void ushell_run(int argc, char *argv[])
 #endif
 }
 
-#endif /* CONFIG_HAVE_LIBC */
-
 static int ushell_process_cmd(int argc, char *argv[])
 {
 	char buf[128];
@@ -280,7 +276,6 @@ static int ushell_process_cmd(int argc, char *argv[])
 		return 0;
 	} else if (!strcmp(cmd, "ls")) {
 		ushell_listdir(argc, argv);
-#ifdef CONFIG_HAVE_LIBC
 	} else if (!strcmp(cmd, "prog-load")) {
 		ushell_prog_load(argc - 1, argv + 1);
 	} else if (!strcmp(cmd, "run")) {
@@ -291,7 +286,6 @@ static int ushell_process_cmd(int argc, char *argv[])
 		ushell_free_all_prog(argc - 1, argv + 1);
 	} else if (!strcmp(cmd, "cat")) {
 		ushell_cat(argc, argv);
-#endif
 	} else if (!strcmp(cmd, "load")) {
 		int r = ushell_load_symbol(argv[1]);
 		snprintf(buf, sizeof(buf), "Load %d symbols\n", r);
@@ -313,12 +307,6 @@ static int ushell_process_cmd(int argc, char *argv[])
 			n = atoi(argv[1]);
 		}
 		set_count(n);
-#endif
-#ifdef CONFIG_LIBSQLITE
-	} else if (!strcmp(cmd, "sqlite3_save")) {
-		void sqlite3_save();
-		ushell_puts("sqlite3_save\n");
-		sqlite3_save();
 #endif
 	} else if (!strcmp(cmd, "quit")) {
 		ushell_puts("bye\n");

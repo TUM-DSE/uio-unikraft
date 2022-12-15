@@ -4,6 +4,9 @@ config LIBUSHELL
 	select HAVE_X86PKU
 	select LIBUKDEBUG
 	select LIBUKCONSOLE
+	select LIBUKSCHEDCOOP
+	select LIBNOLIBC if !HAVE_LIBC
+	select LIBVFSCORE
 
 if LIBUSHELL
 menu "ushell: Configuration"
