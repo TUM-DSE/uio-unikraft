@@ -1,7 +1,6 @@
 config LIBUSHELL
 	bool "ushell"
 	default y
-	select HAVE_X86PKU
 	select LIBUKDEBUG
 	select LIBUKCONSOLE
 	select LIBUKSCHEDCOOP
@@ -18,6 +17,11 @@ config LIBUSHELL_LOADER
 config LIBUSHELL_FSDEV
 	string "Default 9p device to mount when ushell is attached"
 	default "fs0"
+
+config LIBUSHELL_MPK
+	bool "Restrict ushell writes in memory, based on MPK"
+	default n
+	select LIBPKU
 
 endmenu
 endif

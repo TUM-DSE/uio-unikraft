@@ -385,6 +385,9 @@ static void ushell_cons_thread(void *arg)
 	char *argv[USHELL_MAX_ARGS];
 	struct uk_console_events *uevent = (struct uk_console_events *)arg;
 
+#ifdef CONFIG_LIBUSHELL_MPK
+	uk_pr_info("Hello from mpk option\n");
+#endif
 	UK_ASSERT(uevent);
 	uk_pr_info("ushell main thread started\n");
 
