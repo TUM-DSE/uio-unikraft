@@ -49,7 +49,6 @@ void *ushell_alloc_memory(unsigned long size)
 				     | PAGE_ATTR_PROT_EXEC;
 
 	pages = size_to_num_pages(size);
-	unikraft_call_wrapper(uk_pr_info, "pages = %d\n", pages);
 #ifdef _USE_MMAP
 	addr = mmap(NULL, size, PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANON,
 		    -1, 0);
@@ -77,13 +76,17 @@ void *ushell_alloc_memory(unsigned long size)
 	unikraft_call_wrapper_ret(rc, ukplat_page_map, pt, (long long)addr, __PADDR_ANY, pages,
 				 attr, 0);
 	UK_ASSERT(rc == 0);
+#ifdef CONFIG_LIBUSHELL_MPK
 	/*
 	 * TODO: base_addr does not seem to be stored in the stack.
 	 * Therefore every write fails. Maybe it is stored in tls
 	 */
 	enable_write();
+#endif /*CONFIG_LIBUSHELL_MPK */
 	base_addr = (char *)addr + (pages * PAGE_SIZE);
+#ifdef CONFIG_LIBUSHELL_MPK
 	disable_write();
+#endif /*CONFIG_LIBUSHELL_MPK */
 #endif
 	UK_ASSERT(addr);
 	return addr;
