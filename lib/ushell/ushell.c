@@ -463,6 +463,11 @@ static void ushell_cons_thread(void *arg)
 	UK_ASSERT(uevent);
 #ifdef CONFIG_LIBUSHELL_MPK
 	disable_write();
+	rc = ushell_alloc_ushell_programs_array();
+	if (rc < 0) {
+		uk_pr_err("Could not allocate programs array\n");
+		return;
+	}
 #endif /*CONFIG_LIBUSHELL_MPK */
 	unikraft_call_wrapper(uk_pr_info, "ushell main thread started\n");
 

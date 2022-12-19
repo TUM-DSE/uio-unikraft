@@ -7,6 +7,7 @@ extern "C" {
 
 #ifdef CONFIG_LIBUSHELL_MPK
 #include <sys/mman.h>
+#include <errno.h>
 #include <uk/pku.h>
 #include <uk/plat/config.h>
 

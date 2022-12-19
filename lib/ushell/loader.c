@@ -13,7 +13,6 @@
 #include <stdlib.h>
 #include <assert.h>
 #include <fcntl.h>
-#include <sys/mman.h>
 #include <sys/stat.h>
 #define USHELL_ASSERT assert
 #define USHELL_PRINTF printf
@@ -49,15 +48,47 @@ void ushell_puts(char *str)
 #include <stdio.h>
 #include <uk/assert.h>
 #include <uk/print.h>
+#include <uk/config.h>
+#include <ushell/ushell.h>
 
 #include "ushell_api.h"
 
 #define USHELL_ASSERT UK_ASSERT
+#define USHELL_MAP_FAILED (void *)-1
+#ifdef CONFIG_LIBUSHELL_MPK
+#define USHELL_PRINTF(...)                       \
+do {                                                            \
+        pkey_set_perm(PROT_READ | PROT_WRITE, DEFAULT_PKEY);    \
+        printf(__VA_ARGS__);                                     \
+        pkey_set_perm(PROT_READ, DEFAULT_PKEY);                 \
+} while (0)
+#define USHELL_PR_DEBUG(...)                       \
+do {                                                            \
+        pkey_set_perm(PROT_READ | PROT_WRITE, DEFAULT_PKEY);    \
+        uk_pr_debug(__VA_ARGS__);                                     \
+        pkey_set_perm(PROT_READ, DEFAULT_PKEY);                 \
+} while (0)
+#define USHELL_PR_ERR(...)                       \
+do {                                                            \
+        pkey_set_perm(PROT_READ | PROT_WRITE, DEFAULT_PKEY);    \
+        uk_pr_err(__VA_ARGS__);                                     \
+        pkey_set_perm(PROT_READ, DEFAULT_PKEY);                 \
+} while (0)
+#define USHELL_PR_WARN(...)                       \
+do {                                                            \
+        pkey_set_perm(PROT_READ | PROT_WRITE, DEFAULT_PKEY);    \
+        uk_pr_warn(__VA_ARGS__);                                     \
+        pkey_set_perm(PROT_READ, DEFAULT_PKEY);                 \
+} while (0)
+
+#else /* CONFIG_LIBUSHELL_MPK */
+
 #define USHELL_PRINTF uk_pr_info
 #define USHELL_PR_DEBUG uk_pr_debug
 #define USHELL_PR_ERR uk_pr_err
 #define USHELL_PR_WARN uk_pr_warn
-#define USHELL_MAP_FAILED (void *)-1
+
+#endif /* CONFIG_LIBUSHELL_MPK */
 
 #endif
 
@@ -120,7 +151,28 @@ struct ushell_symbol_table {
 	void *addr;
 };
 
+#ifdef CONFIG_LIBUSHELL_MPK
+struct ushell_program *ushell_programs;
+
+int ushell_alloc_ushell_programs_array()
+{
+	struct ushell_program *ush_prog = NULL;
+
+	ush_prog = ushell_alloc_memory(USHELL_PROG_MAX_NUM*sizeof(struct ushell_program));
+	enable_write();
+	ushell_programs = ush_prog;
+	disable_write();
+	if (!ushell_programs) {
+		USHELL_PR_ERR("ushell: failed to alloc ushell programs memory\n");
+		return -1;
+	}
+	memset(ushell_programs, 0, USHELL_PROG_MAX_NUM*sizeof(struct ushell_program));
+	return 0;
+}
+
+#else /* CONFIG_LIBUSHELL_MPK */
 struct ushell_program ushell_programs[USHELL_PROG_MAX_NUM];
+#endif /* CONFIG_LIBUSHELL_MPK */
 
 /* check if ushell_programs[idx] is used */
 static int ushell_program_active(int idx)
@@ -167,28 +219,30 @@ int ushell_loader_test_func(int n)
 	return n + ushell_loader_test_data;
 }
 
-int ushell_symtable_size;
-struct ushell_symbol_table *ushell_symbol_table;
+int ushell_symtable_size = 0;
+struct ushell_symbol_table *ushell_symbol_table = NULL;
 
 int ushell_load_symbol(char *path)
 {
 	int i;
 	FILE *fp;
 	char buf[256];
+	char *tmpc;
+	int ush_sym_tbl_sz = 0;
+	struct ushell_symbol_table *ush_sym_tbl = NULL;
 
 	if (ushell_symbol_table) {
 		ushell_free_memory(ushell_symbol_table,
 				   ushell_symtable_size
 				       * sizeof(struct ushell_symbol_table));
-		ushell_symbol_table = NULL;
-		ushell_symtable_size = 0;
 	}
 
-	fp = fopen(path, "r");
+	unikraft_call_wrapper_ret(fp, fopen, path, "r");
 	if (fp == NULL) {
-		return -1;
+		goto load_sym_out;
 	}
-	while (fgets(buf, 256, fp) != NULL) {
+	unikraft_call_wrapper_ret(tmpc, fgets, buf, 256, fp);
+	while (tmpc != NULL) {
 		int i;
 		for (i = 0; i < 256; i++) {
 			if (buf[i] == '\n')
@@ -197,36 +251,51 @@ int ushell_load_symbol(char *path)
 		if (i == 256) {
 			USHELL_PR_ERR(
 			    "ushell: symbol file contains a too long line\n");
-			ushell_symtable_size = 0;
-			fclose(fp);
-			return -1;
+			unikraft_call_wrapper(fclose, fp);
+			ush_sym_tbl_sz = 0;
+			goto load_sym_out;
 		}
-		ushell_symtable_size++;
+		ush_sym_tbl_sz++;
+		unikraft_call_wrapper_ret(tmpc, fgets, buf, 256, fp);
 	}
-	ushell_symbol_table = ushell_alloc_memory(
-	    sizeof(struct ushell_symbol_table) * ushell_symtable_size);
-	if (!ushell_symbol_table) {
+	ush_sym_tbl = ushell_alloc_memory(
+	    sizeof(struct ushell_symbol_table) * ush_sym_tbl_sz);
+	if (!ush_sym_tbl) {
 		USHELL_PR_ERR("ushell: failed to alloc memory\n");
-		fclose(fp);
-		return -1;
+		unikraft_call_wrapper(fclose, fp);
+		goto load_sym_out;
 	}
 
-	fseek(fp, 0, SEEK_SET);
+	unikraft_call_wrapper(fseek, fp, 0, SEEK_SET);
 	i = 0;
-	while (fgets(buf, 256, fp) != NULL) {
+	unikraft_call_wrapper_ret(tmpc, fgets, buf, 256, fp);
+	while (tmpc != NULL) {
 		char *p, *q;
+		/* TODO: it might need wrapping */
 		long long addr = strtoll(&buf[0], &p, 16);
 		q = p + 1;
 		for (p++; *p != '\n'; p++)
 			;
 		*p = '\0';
-		ushell_symbol_table[i].addr = (void *)addr;
-		strcpy(&ushell_symbol_table[i].name[0], q);
+		ush_sym_tbl[i].addr = (void *)addr;
+		/* TODO: it might need wrapping */
+		strcpy(&ush_sym_tbl[i].name[0], q);
 		i++;
+		unikraft_call_wrapper_ret(tmpc, fgets, buf, 256, fp);
 	}
-	fclose(fp);
-
-	return ushell_symtable_size;
+	unikraft_call_wrapper(fclose, fp);
+load_sym_out:
+#ifdef CONFIG_LIBUSHELL_MPK
+	enable_write();
+#endif /* CONFIG_LIBUSHELL_MPK */
+	ushell_symbol_table = ush_sym_tbl;
+	ushell_symtable_size = ush_sym_tbl_sz;
+#ifdef CONFIG_LIBUSHELL_MPK
+	disable_write();
+#endif /* CONFIG_LIBUSHELL_MPK */
+	if (ush_sym_tbl_sz == 0)
+		return -1;
+	return ush_sym_tbl_sz;
 }
 
 void *ushell_symbol_get(const char *symbol)
@@ -687,26 +756,28 @@ static int ushell_loader_elf_relocate_symbol(struct ushell_loader_ctx *ctx)
 static int ushell_loader_map_elf_image(struct ushell_loader_ctx *ctx,
 				       char *path)
 {
-	FILE *fp = fopen(path, "r");
+	FILE *fp;
+	unikraft_call_wrapper_ret(fp, fopen, path, "r");
 	if (!fp) {
 		USHELL_PR_ERR("cannot open file: %s\n", path);
 		return -1;
 	}
 	unsigned size;
-	fseek(fp, 0, SEEK_END);
-	size = ftell(fp);
-	fseek(fp, 0, SEEK_SET);
+	unikraft_call_wrapper(fseek, fp, 0, SEEK_END);
+	unikraft_call_wrapper_ret(size, ftell, fp);
+	unikraft_call_wrapper(fseek, fp, 0, SEEK_SET);
 
 	USHELL_PR_DEBUG("ushell: file: %s, size: %d\n", path, size);
 	ctx->elf_size = size;
 	ctx->elf_img = ushell_alloc_memory(size);
 	USHELL_ASSERT(ctx->elf_img != USHELL_MAP_FAILED);
-	size_t r = fread(ctx->elf_img, size, 1, fp);
+	size_t r;
+	unikraft_call_wrapper_ret(r, fread, ctx->elf_img, size, 1, fp);
 	if (r != 1) {
 		USHELL_PR_ERR("ushell: failed to read file\n");
 		return -1;
 	}
-	fclose(fp);
+	unikraft_call_wrapper(fclose, fp);
 	ctx->ehdr = ctx->elf_img;
 	return 0;
 }
@@ -950,6 +1021,7 @@ int ushell_program_run(char *prog_name, int argc, char *argv[], int *retval)
 	USHELL_PR_DEBUG("ushell: program run: %s\n", prog_name);
 	int (*func)(int, char *[]) =
 	    (void *)((char *)prog->text + prog->entry_off);
+	//enable_write();
 	int r = func(argc, argv);
 	USHELL_PR_DEBUG("ushell: return value: %d\n", r);
 	if (retval) {
