@@ -20,6 +20,19 @@
 #include <string.h>
 #include <stdio.h>
 
+#define size_to_num_pages(size) \
+	        (ALIGN_UP((unsigned long)(size), __PAGE_SIZE) / __PAGE_SIZE)
+
+#ifdef CONFIG_LIBUSHELL_MPK
+
+#define PKEY_MASK (~(PAGE_PROT_PKEY0 | PAGE_PROT_PKEY1 | PAGE_PROT_PKEY2 | \
+                                                PAGE_PROT_PKEY3))
+#define CLEAR_PKEY(prot)                (prot & PKEY_MASK)
+#define INSTALL_PKEY(prot, pkey)        (prot | pkey)
+
+unsigned long pbkey = 0;
+#endif /*CONFIG_LIBUSHELL_MPK */
+
 static const char *fsdev = CONFIG_LIBUSHELL_FSDEV;
 UK_LIB_PARAM_STR(fsdev);
 
@@ -30,9 +43,13 @@ UK_LIB_PARAM_STR(fsdev);
 
 void *ushell_alloc_memory(unsigned long size)
 {
-	unsigned pages = (size + PAGE_SIZE) / PAGE_SIZE;
+	unsigned pages;
 	void *addr = NULL;
+	unsigned long attr = PAGE_ATTR_PROT_READ | PAGE_ATTR_PROT_WRITE
+				     | PAGE_ATTR_PROT_EXEC;
 
+	pages = size_to_num_pages(size);
+	unikraft_call_wrapper(uk_pr_info, "pages = %d\n", pages);
 #ifdef _USE_MMAP
 	addr = mmap(NULL, size, PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANON,
 		    -1, 0);
@@ -42,16 +59,31 @@ void *ushell_alloc_memory(unsigned long size)
 		return;
 	}
 #else
-	struct uk_pagetable *pt = ukplat_pt_get_active();
+#ifdef CONFIG_LIBUSHELL_MPK
+
+	/* clear current pkey */
+	attr = CLEAR_PKEY(attr);
+	/* install new pkey */
+	attr = INSTALL_PKEY(attr, pbkey);
+
+#endif /*CONFIG_LIBUSHELL_MPK */
+
+	struct uk_pagetable *pt;
+	int rc;
+	unikraft_call_wrapper_ret(pt, ukplat_pt_get_active);
 	// FIXME: find proper vaddr
 	static void *base_addr = (void *)0x80000000;
 	addr = base_addr;
-	int rc = ukplat_page_map(pt, (long long)addr, __PADDR_ANY, pages,
-				 PAGE_ATTR_PROT_READ | PAGE_ATTR_PROT_WRITE
-				     | PAGE_ATTR_PROT_EXEC,
-				 0);
+	unikraft_call_wrapper_ret(rc, ukplat_page_map, pt, (long long)addr, __PADDR_ANY, pages,
+				 attr, 0);
 	UK_ASSERT(rc == 0);
+	/*
+	 * TODO: base_addr does not seem to be stored in the stack.
+	 * Therefore every write fails. Maybe it is stored in tls
+	 */
+	enable_write();
 	base_addr = (char *)addr + (pages * PAGE_SIZE);
+	disable_write();
 #endif
 	UK_ASSERT(addr);
 	return addr;
@@ -59,13 +91,15 @@ void *ushell_alloc_memory(unsigned long size)
 
 void ushell_free_memory(void *addr, unsigned long size)
 {
-	unsigned pages = (size + PAGE_SIZE) / PAGE_SIZE;
+	unsigned pages;
+	pages = size_to_num_pages(size);
 
 #ifdef _USE_MMAP
 	munmap(code, size);
 #else
-	struct uk_pagetable *pt = ukplat_pt_get_active();
-	ukplat_page_unmap(pt, (long long)addr, pages, 0);
+	struct uk_pagetable *pt;
+	unikraft_call_wrapper_ret(pt, ukplat_pt_get_active);
+	unikraft_call_wrapper(ukplat_page_unmap, pt, (long long)addr, pages, 0);
 #endif
 }
 
@@ -396,13 +430,25 @@ static void ushell_cons_thread(void *arg)
 	struct uk_console_events *uevent = (struct uk_console_events *)arg;
 	int ushell_mounted = 0;
 #ifdef CONFIG_LIBUSHELL_MPK
-	int key = 0;
 	struct uk_thread *ushell_thread = uk_thread_current();
+	int key = 0;
 
 	key = pkey_alloc(0, 0);
 	if (key < 0) {
 		uk_pr_err("Could not allocate pkey %d\n", key);
 		return;
+	}
+	if (key & 0x01) {
+		pbkey |= PAGE_PROT_PKEY0;
+	}
+	if (key & 0x02) {
+		pbkey |= PAGE_PROT_PKEY1;
+	}
+	if (key & 0x04) {
+		pbkey |= PAGE_PROT_PKEY2;
+	}
+	if (key & 0x08) {
+		pbkey |= PAGE_PROT_PKEY3;
 	}
 	rc = pkey_mprotect(ushell_thread->stack, STACK_SIZE, PROT_READ | PROT_WRITE, key);
 	if (rc < 0) {
