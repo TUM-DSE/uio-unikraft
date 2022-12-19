@@ -23,8 +23,6 @@
 static const char *fsdev = CONFIG_LIBUSHELL_FSDEV;
 UK_LIB_PARAM_STR(fsdev);
 
-int ushell_mounted;
-
 //-------------------------------------
 // ushel API
 
@@ -39,7 +37,7 @@ void *ushell_alloc_memory(unsigned long size)
 	addr = mmap(NULL, size, PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANON,
 		    -1, 0);
 	if (code == MAP_FAILED || code == 0) {
-		uk_pr_info("ushell: mmap failed: code=%ld\n", (long)code);
+		unikraft_call_wrapper(uk_pr_info, "ushell: mmap failed: code=%ld\n", (long)code);
 		ushell_puts("Failed to run command\n");
 		return;
 	}
@@ -75,7 +73,7 @@ void ushell_free_memory(void *addr, unsigned long size)
 
 static void ushell_puts_n(char *str, size_t len)
 {
-	uk_console_puts(str, len);
+	unikraft_call_wrapper(uk_console_puts, str, len);
 }
 
 void ushell_puts(char *str)
@@ -105,51 +103,52 @@ static void ushell_listdir(int argc, char *argv[])
 	char buf[128];
 	char *path;
 
-	if (!ushell_mounted) {
-		ushell_puts("fs is not mounted\n");
-		return;
-	}
-
 	if (argc >= 2) {
 		path = argv[1];
 	} else {
 		path = "/";
 	}
-	dp = opendir(path);
+	unikraft_call_wrapper_ret(dp, opendir, path);
 	if (!dp) {
 		snprintf(buf, sizeof(buf), "No such directory: %s\n", path);
 		ushell_puts(buf);
 		return;
 	}
-	while ((ent = readdir(dp))) {
+	unikraft_call_wrapper_ret(ent, readdir, dp);
+	while (ent != NULL) {
 		if (ent->d_name[0] == '.') {
+			unikraft_call_wrapper_ret(ent, readdir, dp);
 			continue;
 		}
 		snprintf(buf, sizeof(buf), "%s\n", ent->d_name);
 		ushell_puts(buf);
+		unikraft_call_wrapper_ret(ent, readdir, dp);
 	}
-	closedir(dp);
+	unikraft_call_wrapper(closedir, dp);
 }
 
 static void ushell_cat(int argc, char *argv[])
 {
 	FILE *fp;
 	char buf[128];
+	char *tmpc = NULL;
 
 	if (argc <= 1) {
 		ushell_puts("Usage: cat [file]\n");
 		return;
 	}
 
-	fp = fopen(argv[1], "rt");
+	unikraft_call_wrapper_ret(fp, fopen, argv[1], "rt");
 	if (fp == NULL) {
 		snprintf(buf, sizeof(buf), "Error opening file %s", argv[1]);
 		ushell_puts(buf);
 	}
-	while (fgets(buf, 128, fp) != NULL) {
+	unikraft_call_wrapper_ret(tmpc, fgets, buf, 128, fp);
+	while (tmpc != NULL) {
 		ushell_puts(buf);
+		unikraft_call_wrapper_ret(tmpc, fgets, buf, 128, fp);
 	}
-	fclose(fp);
+	unikraft_call_wrapper(fclose, fp);
 }
 
 #include <sys/mman.h>
@@ -247,7 +246,7 @@ static void ushell_run(int argc, char *argv[])
 
 	fread(code, size, 1, fp);
 	fclose(fp);
-	uk_pr_info("ushell: load\n");
+	unikraft_call_wrapper(uk_pr_info, "ushell: load\n");
 
 #if 0
 	uk_hexdumpC(code, size);
@@ -263,7 +262,7 @@ static void ushell_run(int argc, char *argv[])
 #endif
 }
 
-static int ushell_process_cmd(int argc, char *argv[])
+static int ushell_process_cmd(int argc, char *argv[], int ushell_mounted)
 {
 	char buf[128];
 	if (argc < 1) {
@@ -275,6 +274,10 @@ static int ushell_process_cmd(int argc, char *argv[])
 	if (*cmd == '\0') {
 		return 0;
 	} else if (!strcmp(cmd, "ls")) {
+		if (!ushell_mounted) {
+			ushell_puts("fs is not mounted\n");
+			return -1;
+		}
 		ushell_listdir(argc, argv);
 	} else if (!strcmp(cmd, "prog-load")) {
 		ushell_prog_load(argc - 1, argv + 1);
@@ -294,7 +297,7 @@ static int ushell_process_cmd(int argc, char *argv[])
 	} else if (!strcmp(cmd, "kill")) {
 		if (argc >= 2) {
 			int sig = atoi(argv[1]);
-			raise(sig);
+			unikraft_call_wrapper(raise, sig);
 		} else {
 			ushell_puts("Usage: kill <num>\n");
 		}
@@ -325,13 +328,10 @@ static int ushell_mount()
 	int rootflags = 0;
 	char *path = "/ushell";
 	const char *rootopts = "";
-
-	if (ushell_mounted) {
-		return 0;
-	}
+	int ret = 0;
 
 #if 1
-	int ret = mkdir(path, S_IRWXU);
+	unikraft_call_wrapper_ret(ret, mkdir, path, S_IRWXU);
 	if (ret != 0 && errno != EEXIST) {
 		/* Root file system is not mounted. Therefore we will mount
 		 * ushell fs as a rootfs.
@@ -340,16 +340,15 @@ static int ushell_mount()
 	}
 #endif
 
-	uk_pr_info("ushell: mount fs to %s\n", path);
-	if (mount(fsdev, path, rootfs, rootflags, rootopts) != 0) {
-		uk_pr_crit("Failed to mount %s (%s) at %s: errno=%d\n", fsdev,
+	unikraft_call_wrapper(uk_pr_info, "ushell: mount fs to %s\n", path);
+	unikraft_call_wrapper_ret(ret, mount, fsdev, path, rootfs, rootflags, rootopts);
+	if (ret != 0) {
+		unikraft_call_wrapper(uk_pr_crit, "Failed to mount %s (%s) at %s: errno=%d\n", fsdev,
 			   rootfs, path, errno);
 		return -1;
 	}
 
-	ushell_mounted = 1;
-
-	return 0;
+	return 1;
 }
 
 #define USHELL_MAX_ARGS 16
@@ -368,10 +367,21 @@ static int ushell_split_args(char *buf, char *args[])
 		if (*p == '\0') {
 			break;
 		}
+		/* TODO: We ned to find a better way to handle this case.
+		 * One solution could be to copy the buffer (heavy)
+		 * One other solution could be to change the algorithm
+		 * Do we need to write in console buffer?
+		 */
+#ifdef CONFIG_LIBUSHELL_MPK
+		pkey_set_perm(PROT_READ | PROT_WRITE, DEFAULT_PKEY);
+#endif
 		*p++ = '\0';
+#ifdef CONFIG_LIBUSHELL_MPK
+		pkey_set_perm(PROT_READ, DEFAULT_PKEY);
+#endif
 		if (i >= USHELL_MAX_ARGS) {
 			// FIXME
-			uk_pr_err("ushell: too many args: %s\n", buf);
+			unikraft_call_wrapper(uk_pr_err, "ushell: too many args: %s\n", buf);
 			break;
 		}
 	}
@@ -384,18 +394,35 @@ static void ushell_cons_thread(void *arg)
 	char *buf;
 	char *argv[USHELL_MAX_ARGS];
 	struct uk_console_events *uevent = (struct uk_console_events *)arg;
-
+	int ushell_mounted = 0;
 #ifdef CONFIG_LIBUSHELL_MPK
-	uk_pr_info("Hello from mpk option\n");
-#endif
-	UK_ASSERT(uevent);
-	uk_pr_info("ushell main thread started\n");
+	int key = 0;
+	struct uk_thread *ushell_thread = uk_thread_current();
 
-	rc = ushell_mount();
+	key = pkey_alloc(0, 0);
+	if (key < 0) {
+		uk_pr_err("Could not allocate pkey %d\n", key);
+		return;
+	}
+	rc = pkey_mprotect(ushell_thread->stack, STACK_SIZE, PROT_READ | PROT_WRITE, key);
+	if (rc < 0) {
+		uk_pr_err("Could not set pkey for thread stack %d\n", errno);
+		return;
+	}
+#endif /*CONFIG_LIBUSHELL_MPK */
+
+	UK_ASSERT(uevent);
+#ifdef CONFIG_LIBUSHELL_MPK
+	disable_write();
+#endif /*CONFIG_LIBUSHELL_MPK */
+	unikraft_call_wrapper(uk_pr_info, "ushell main thread started\n");
+
+	if (ushell_mounted == 0)
+		ushell_mounted = ushell_mount();
 #if 0
 	/* mount error. possibly the fs is already mounted   */
 	/* TODO: properly check if the fs is already mounted */
-	if (rc < 0) {
+	if (ushell_mounted < 0) {
 		return;
 	}
 #endif
@@ -405,15 +432,30 @@ static void ushell_cons_thread(void *arg)
 
 	while (1) {
 		ushell_print_prompt();
-		buf = uk_console_get_buf();
+		unikraft_call_wrapper_ret(buf, uk_console_get_buf);
 		if (buf == NULL)
 			continue;
 		argc = ushell_split_args(buf, argv);
-		rc = ushell_process_cmd(argc, argv);
+		rc = ushell_process_cmd(argc, argv, ushell_mounted);
 		if (rc) {
 			break;
 		}
 	}
+#ifdef CONFIG_LIBUSHELL_MPK
+	enable_write();
+	/*
+	 * TODO: We might need to do a proper cleanup here.
+	 * Shell's stack will get dree, but we might need to make sure
+	 * that the used key is not attached to any page.
+	 *
+	 * Use after free is a well-known issue of pkeys, even in Linux
+	 */
+	rc = pkey_free(key);
+	if (rc < 0) {
+		uk_pr_err("Could not free pkey %d\n", key);
+		return;
+	}
+#endif /*CONFIG_LIBUSHELL_MPK */
 }
 
 static int ushell_init(void)
