@@ -41,6 +41,7 @@ SECTIONS
 
 		*(.text)
 		*(.text.*)
+		KEEP(*(.text.keep))
 	}
 	_etext = .;
 
