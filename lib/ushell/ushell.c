@@ -360,6 +360,11 @@ static int ushell_process_cmd(int argc, char *argv[], int ushell_mounted)
 		UK_ASSERT(test_var == 7);
 		ushell_puts("Trying to write in a global variable, should fail\n");
 		test_var = 42;
+	} else if (!strcmp(cmd, "test_unikraft_call")) {
+		unikraft_call_wrapper(printf, "hello");
+		ushell_puts("Successfully wrote hello in stdout\n");
+		ushell_puts("Using printf without the wrapper should fail\n");
+		printf("This message should not get displayed\n");
 #endif /* CONFIG_LIBUSHELL_TEST_MPK */
 	} else if (!strcmp(cmd, "quit")) {
 		ushell_puts("Use Ctrl-C\n");
