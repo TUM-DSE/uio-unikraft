@@ -33,7 +33,9 @@
 unsigned long pbkey = 0;
 #endif /*CONFIG_LIBUSHELL_MPK */
 
+#ifdef CONFIG_LIBUSHELL_TEST_MPK
 int test_var;
+#endif /* CONFIG_LIBUSHELL_TEST_MPK */
 
 static const char *fsdev = CONFIG_LIBUSHELL_FSDEV;
 UK_LIB_PARAM_STR(fsdev);
@@ -350,6 +352,7 @@ static int ushell_process_cmd(int argc, char *argv[], int ushell_mounted)
 		}
 		set_count(n);
 #endif
+#ifdef CONFIG_LIBUSHELL_TEST_MPK
 	} else if (!strcmp(cmd, "test_var_read")) {
 		UK_ASSERT(test_var == 7);
 		ushell_puts("Successfully read global variable\n");
@@ -357,6 +360,7 @@ static int ushell_process_cmd(int argc, char *argv[], int ushell_mounted)
 		UK_ASSERT(test_var == 7);
 		ushell_puts("Trying to write in a global variable, should fail\n");
 		test_var = 42;
+#endif /* CONFIG_LIBUSHELL_TEST_MPK */
 	} else if (!strcmp(cmd, "quit")) {
 		ushell_puts("Use Ctrl-C\n");
 		return 0;
@@ -470,7 +474,9 @@ static void ushell_cons_thread(void *arg)
 #endif /*CONFIG_LIBUSHELL_MPK */
 
 	UK_ASSERT(uevent);
+#ifdef CONFIG_LIBUSHELL_TEST_MPK
 	test_var = 7;
+#endif /* CONFIG_LIBUSHELL_TEST_MPK */
 #ifdef CONFIG_LIBUSHELL_MPK
 	disable_write();
 	rc = ushell_alloc_ushell_programs_array();
