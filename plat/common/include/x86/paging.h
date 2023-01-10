@@ -80,12 +80,16 @@ static inline __pte_t
 pgarch_pte_create(__paddr_t paddr, unsigned long attr, unsigned int level,
 		  __pte_t template, unsigned int template_level __unused)
 {
+#ifdef CONFIG_LIBPKU
+	unsigned long flags = 0;
+#endif
 	__pte_t pte;
 
 	UK_ASSERT(PAGE_ALIGNED(paddr));
 
 	pte = paddr & X86_PTE_PADDR_MASK;
 	pte |= X86_PTE_PRESENT;
+	pte |= X86_PTE_US;
 
 	if (level > PAGE_LEVEL) {
 		UK_ASSERT(level <= PAGE_HUGE_LEVEL);
@@ -98,7 +102,35 @@ pgarch_pte_create(__paddr_t paddr, unsigned long attr, unsigned int level,
 	if (!(attr & PAGE_ATTR_PROT_EXEC))
 		pte |= X86_PTE_NX;
 
-	/* Take all other bits from template */
+#ifdef CONFIG_LIBPKU
+	/* set protection key */
+	if ((attr & PAGE_PROT_PKEY0)) {
+		flags |= _PAGE_PKEY0;
+	} else {
+		flags &= ~_PAGE_PKEY0;
+	}
+	if ((attr & PAGE_PROT_PKEY1)) {
+		flags |= _PAGE_PKEY1;
+	} else {
+		flags &= ~_PAGE_PKEY1;
+	}
+	if ((attr & PAGE_PROT_PKEY2)) {
+		flags |= _PAGE_PKEY2;
+	} else {
+		flags &= ~_PAGE_PKEY2;
+	}
+	if ((attr & PAGE_PROT_PKEY3)) {
+		flags |= _PAGE_PKEY3;
+	} else {
+		flags &= ~_PAGE_PKEY3;
+	}
+	if (flags) {
+		if (template & PAGE_ATTR_PROT_WRITE)
+			pte |= X86_PTE_RW;
+
+		pte |= flags;
+	}
+#endif
 	pte |= template & (X86_PTE_US |
 			   X86_PTE_PWT |
 			   X86_PTE_PCD |
@@ -109,7 +141,6 @@ pgarch_pte_create(__paddr_t paddr, unsigned long attr, unsigned int level,
 			   X86_PTE_USER1_MASK |
 			   X86_PTE_USER2_MASK |
 			   X86_PTE_MPK_MASK);
-
 	return pte;
 }
 
