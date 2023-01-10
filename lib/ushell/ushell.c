@@ -349,8 +349,8 @@ static int ushell_process_cmd(int argc, char *argv[], int ushell_mounted)
 		set_count(n);
 #endif
 	} else if (!strcmp(cmd, "quit")) {
-		ushell_puts("bye\n");
-		return 1;
+		ushell_puts("Use Ctrl-C\n");
+		return 0;
 	} else {
 		ushell_puts("Error: unknown command: ");
 		ushell_puts(cmd);
