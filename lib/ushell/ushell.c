@@ -31,6 +31,7 @@
 #define INSTALL_PKEY(prot, pkey)        (prot | pkey)
 
 unsigned long pbkey = 0;
+int raw_key = 0;
 #endif /*CONFIG_LIBUSHELL_MPK */
 
 #ifdef CONFIG_LIBUSHELL_TEST_MPK
@@ -358,13 +359,44 @@ static int ushell_process_cmd(int argc, char *argv[], int ushell_mounted)
 		ushell_puts("Successfully read global variable\n");
 	} else if (!strcmp(cmd, "test_var_write")) {
 		UK_ASSERT(test_var == 7);
-		ushell_puts("Trying to write in a global variable, should fail\n");
+		ushell_puts("Writing in a global variable should fail\n");
 		test_var = 42;
 	} else if (!strcmp(cmd, "test_unikraft_call")) {
-		unikraft_call_wrapper(printf, "hello");
+		unikraft_call_wrapper(printf, "hello\n");
 		ushell_puts("Successfully wrote hello in stdout\n");
 		ushell_puts("Using printf without the wrapper should fail\n");
 		printf("This message should not get displayed\n");
+	} else if (!strcmp(cmd, "test_alloc")) {
+		char *tst_buf = NULL;
+		int rc = 0;
+
+		ushell_puts("Allocating two continuous pages");
+		unikraft_call_wrapper_ret(tst_buf, uk_memalign,
+					  uk_alloc_get_default(), __PAGE_SIZE,
+					  2 * __PAGE_SIZE);
+		if (!tst_buf) {
+			unikraft_call_wrapper(printf,
+					      "Could not allocate pages\n");
+			ushell_puts("Could not allocate pages\n");
+			return 0;
+		}
+		ushell_puts("Setting protection key to first page\n");
+		unikraft_call_wrapper_ret(rc, pkey_mprotect, tst_buf,
+					  __PAGE_SIZE, PROT_READ | PROT_WRITE,
+					  raw_key);
+		if (rc < 0) {
+			unikraft_call_wrapper(uk_pr_err,
+					"Could not set pkey for thread stack %d\n", errno);
+			ushell_puts("Could not set pkey for allocated page\n");
+			unikraft_call_wrapper(uk_free, uk_alloc_get_default(),
+					      tst_buf);
+			return 0;
+		}
+		ushell_puts("Writing in the first page should be sucessful\n");
+		*tst_buf = 7;
+		ushell_puts("Writing in the second page should fail\n");
+		*(tst_buf + __PAGE_SIZE) = 7;
+		unikraft_call_wrapper(uk_free, uk_alloc_get_default(), tst_buf);
 #endif /* CONFIG_LIBUSHELL_TEST_MPK */
 	} else if (!strcmp(cmd, "quit")) {
 		ushell_puts("Use Ctrl-C\n");
@@ -459,6 +491,7 @@ static void ushell_cons_thread(void *arg)
 		uk_pr_err("Could not allocate pkey %d\n", key);
 		return;
 	}
+	raw_key = key;
 	if (key & 0x01) {
 		pbkey |= PAGE_PROT_PKEY0;
 	}
