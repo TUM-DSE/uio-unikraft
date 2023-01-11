@@ -6,7 +6,10 @@
 #include <uk/libparam.h>
 #include <vfscore/mount.h>
 #include <uk/init.h>
+
+#ifdef CONFIG_LIBPKU
 #include <uk/pku.h>
+#endif
 
 #include "uk/thread.h"
 #include "uk/sched.h"
@@ -46,6 +49,7 @@ UK_LIB_PARAM_STR(fsdev);
 //-------------------------------------
 // ushel API
 
+#ifdef CONFIG_LIBPKU
 int ushell_disable_write()
 {
 	int rc = pkey_set_perm(PROT_READ, DEFAULT_PKEY);
@@ -63,6 +67,7 @@ int ushell_enable_write()
 
 	return rc;
 }
+#endif
 
 // #define _USE_MMAP // use mmap()
 void *ushell_alloc_memory(unsigned long size)
