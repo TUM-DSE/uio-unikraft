@@ -159,9 +159,9 @@ int ushell_alloc_ushell_programs_array()
 	struct ushell_program *ush_prog = NULL;
 
 	ush_prog = ushell_alloc_memory(USHELL_PROG_MAX_NUM*sizeof(struct ushell_program));
-	enable_write();
+	ushell_enable_write();
 	ushell_programs = ush_prog;
-	disable_write();
+	ushell_disable_write();
 	if (!ushell_programs) {
 		USHELL_PR_ERR("ushell: failed to alloc ushell programs memory\n");
 		return -1;
@@ -286,12 +286,12 @@ int ushell_load_symbol(char *path)
 	unikraft_call_wrapper(fclose, fp);
 load_sym_out:
 #ifdef CONFIG_LIBUSHELL_MPK
-	enable_write();
+	ushell_enable_write();
 #endif /* CONFIG_LIBUSHELL_MPK */
 	ushell_symbol_table = ush_sym_tbl;
 	ushell_symtable_size = ush_sym_tbl_sz;
 #ifdef CONFIG_LIBUSHELL_MPK
-	disable_write();
+	ushell_disable_write();
 #endif /* CONFIG_LIBUSHELL_MPK */
 	if (ush_sym_tbl_sz == 0)
 		return -1;
@@ -646,7 +646,7 @@ static Elf64_Sxword elf_get_sym_addr(struct ushell_loader_ctx *ctx,
 	case STT_NOTYPE: {
 		void *addr = ushell_symbol_get(sym_name);
 		if (addr == NULL) {
-			USHELL_PR_ERR("ushell: Cannot resolve symbol: %s\n",
+			USHELL_PR_DEBUG("ushell: Cannot resolve symbol: %s\n",
 				      sym_name);
 			return -1;
 		}
@@ -697,10 +697,11 @@ static Elf64_Sym *elf_get_sym(struct ushell_loader_ctx *ctx, int sym_idx)
 static int ushell_loader_elf_relocate_symbol(struct ushell_loader_ctx *ctx)
 {
 	if (!ctx->sections.rela_text) {
-		/* no relocation entry */
+		USHELL_PR_DEBUG("no relocaiton entry\n");
 		return 0;
 	}
 
+	USHELL_PR_DEBUG("start reloc\n");
 	int i, ret;
 	int rel_entries = ctx->sections.rela_text->sh_size
 			  / ctx->sections.rela_text->sh_entsize;
@@ -710,9 +711,10 @@ static int ushell_loader_elf_relocate_symbol(struct ushell_loader_ctx *ctx)
 	    (void *)((char *)ctx->elf_img + ctx->sections.rela_text->sh_offset);
 
 	for (i = 0; i < rel_entries; i++, rel++) {
+		USHELL_PR_DEBUG("reloc %d/%d\n", i, rel_entries);
 		int sym_idx = ELF64_R_SYM(rel->r_info);
 		if (sym_idx == SHN_UNDEF || sym_idx >= sym_entries) {
-			USHELL_PR_ERR("ushell: Unsupported relocation entry\n");
+			USHELL_PR_DEBUG("ushell: Unsupported relocation entry\n");
 			continue;
 		}
 		Elf64_Sym *sym = elf_get_sym(ctx, sym_idx);
@@ -728,12 +730,14 @@ static int ushell_loader_elf_relocate_symbol(struct ushell_loader_ctx *ctx)
 			break;
 		case R_X86_64_PC32:
 		case R_X86_64_PLT32:
+			USHELL_PR_DEBUG("ushell: relocat pc32\n");
 			ret = elf_relocate_x86_64_pc32_plt32(ctx, sym, sym_addr,
 							     rel);
 			break;
 		case R_X86_64_GOTPCREL:
 		case R_X86_64_GOTPCRELX:
 		case R_X86_64_REX_GOTPCRELX:
+			USHELL_PR_DEBUG("ushell: relocat gotpcrel\n");
 			ret = elf_relocate_x86_64_gotpcrel(ctx, sym, sym_addr,
 							   rel);
 			break;
@@ -744,6 +748,9 @@ static int ushell_loader_elf_relocate_symbol(struct ushell_loader_ctx *ctx)
 			ret = -1;
 		}
 		if (ret != 0) {
+			USHELL_PR_ERR(
+			    "ushell: Failed to relocate type: %d\n",
+			    reloc_type);
 			return -1;
 		}
 	}
@@ -979,24 +986,28 @@ int ushell_loader_load_elf(char *path)
 		USHELL_PR_ERR("ushell: failed to scan sections\n");
 		goto err;
 	}
+	USHELL_PR_DEBUG("scan section ok\n");
 
 	r = ushell_loader_elf_load_section(&ctx);
 	if (r != 0) {
 		USHELL_PR_ERR("ushell: failed to load sections\n");
 		goto err;
 	}
+	USHELL_PR_DEBUG("loadelf section ok\n");
 
 	r = ushell_loader_elf_relocate_symbol(&ctx);
 	if (r != 0) {
 		USHELL_PR_ERR("ushell: failed to relocate symbols\n");
 		goto err;
 	}
+	USHELL_PR_DEBUG("relocate_symbol ok\n");
 
 	r = ushell_loader_elf_find_entry(&ctx);
 	if (r != 0) {
 		USHELL_PR_ERR("ushell: failed to find main entry point\n");
 		goto err;
 	}
+	USHELL_PR_DEBUG("elf_find_entry ok\n");
 
 end:
 	ushell_free_memory(ctx.elf_img, ctx.elf_size);
