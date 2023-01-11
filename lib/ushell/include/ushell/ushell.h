@@ -13,24 +13,8 @@ extern "C" {
 
 #define DEFAULT_PKEY 0
 
-static int disable_write()
-{
-	int rc = pkey_set_perm(PROT_READ, DEFAULT_PKEY);
-	if (rc < 0)
-		uk_pr_err("Could not set permisisons for dfault pkey%d\n", errno);
-
-	return rc;
-}
-
-static int enable_write()
-{
-	int rc = pkey_set_perm(PROT_READ | PROT_WRITE, DEFAULT_PKEY);
-	if (rc < 0)
-		uk_pr_err("Could not set permisisons for dfault pkey%d\n", errno);
-
-	return rc;
-}
-
+int ushell_disable_write();
+int ushell_enable_write();
 #define unikraft_call_wrapper(fname, ...)			\
 do {								\
 	pkey_set_perm(PROT_READ | PROT_WRITE, DEFAULT_PKEY);	\
@@ -43,6 +27,13 @@ do {								\
 	pkey_set_perm(PROT_READ | PROT_WRITE, DEFAULT_PKEY);	\
 	retval = fname(__VA_ARGS__);				\
 	pkey_set_perm(PROT_READ, DEFAULT_PKEY);			\
+} while (0)
+
+#define unikraft_write_var(var, values)		\
+do {								\
+		ushell_enable_write();					\
+		var = values;			\
+		ushell_disable_write();				\
 } while (0)
 
 #else
@@ -55,6 +46,11 @@ do {								\
 #define unikraft_call_wrapper_ret(retval, fname, ...)		\
 do {								\
 	retval = fname(__VA_ARGS__);				\
+} while (0)
+
+#define unikraft_write_var(var, values)		\
+do {								\
+			var = values;			\
 } while (0)
 #endif /*CONFIG_LIBUSHELL_MPK */
 

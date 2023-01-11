@@ -23,5 +23,9 @@ config LIBUSHELL_MPK
 	default n
 	select LIBPKU
 
+config LIBUSHELL_TEST_MPK
+	bool "Simple tests for MPK"
+	default n
+
 endmenu
 endif
