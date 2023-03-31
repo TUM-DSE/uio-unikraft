@@ -384,6 +384,17 @@ static int ushell_process_cmd(int argc, char *argv[], int ushell_mounted)
 		}
 		unikraft_call_wrapper(set_count, n);
 #endif
+#ifdef CONFIG_LIBUSHELL_BPF
+	} else if (!strcmp(cmd, "bpf_attach")) {
+		if (argc >= 3) {
+			void insert_bpf_program(const char *, const char *);
+			unikraft_call_wrapper(insert_bpf_program, argv[1],
+					      argv[2]);
+		} else {
+			ushell_puts("Usage: bpf_attach <function_name> "
+				    "<bpf_filename>\n");
+		}
+#endif
 #ifdef CONFIG_LIBUSHELL_TEST_MPK
 	} else if (!strcmp(cmd, "test_var_read")) {
 		UK_ASSERT(ushell_mpk_test_var == 7);
