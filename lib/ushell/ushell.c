@@ -7,6 +7,10 @@
 #include <vfscore/mount.h>
 #include <uk/init.h>
 
+#ifdef CONFIG_LIBPKU
+#include <uk/pku.h>
+#endif
+
 #include "uk/thread.h"
 #include "uk/sched.h"
 
@@ -31,7 +35,13 @@
 #define INSTALL_PKEY(prot, pkey)        (prot | pkey)
 
 unsigned long pbkey = 0;
+int raw_key = 0;
 #endif /*CONFIG_LIBUSHELL_MPK */
+
+// #ifdef CONFIG_LIBUSHELL_TEST_MPK
+// Define this values even if no MPK support so that exportsysm.uk works correctly
+int ushell_mpk_test_var;
+// #endif /* CONFIG_LIBUSHELL_TEST_MPK */
 
 static const char *fsdev = CONFIG_LIBUSHELL_FSDEV;
 UK_LIB_PARAM_STR(fsdev);
@@ -39,8 +49,27 @@ UK_LIB_PARAM_STR(fsdev);
 //-------------------------------------
 // ushel API
 
-// #define _USE_MMAP // use mmap()
+#ifdef CONFIG_LIBPKU
+int ushell_disable_write()
+{
+	int rc = pkey_set_perm(PROT_READ, DEFAULT_PKEY);
+	if (rc < 0)
+		uk_pr_err("Could not set permisisons for dfault pkey%d\n", errno);
 
+	return rc;
+}
+
+int ushell_enable_write()
+{
+	int rc = pkey_set_perm(PROT_READ | PROT_WRITE, DEFAULT_PKEY);
+	if (rc < 0)
+		uk_pr_err("Could not set permisisons for dfault pkey%d\n", errno);
+
+	return rc;
+}
+#endif
+
+// #define _USE_MMAP // use mmap()
 void *ushell_alloc_memory(unsigned long size)
 {
 	unsigned pages;
@@ -50,6 +79,9 @@ void *ushell_alloc_memory(unsigned long size)
 
 	pages = size_to_num_pages(size);
 #ifdef _USE_MMAP
+	/* XXX: This does not work because mmap does not support allocating
+		exetuubale memory for now
+	*/
 	addr = mmap(NULL, size, PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANON,
 		    -1, 0);
 	if (code == MAP_FAILED || code == 0) {
@@ -81,11 +113,11 @@ void *ushell_alloc_memory(unsigned long size)
 	 * TODO: base_addr does not seem to be stored in the stack.
 	 * Therefore every write fails. Maybe it is stored in tls
 	 */
-	enable_write();
+	ushell_enable_write();
 #endif /*CONFIG_LIBUSHELL_MPK */
 	base_addr = (char *)addr + (pages * PAGE_SIZE);
 #ifdef CONFIG_LIBUSHELL_MPK
-	disable_write();
+	ushell_disable_write();
 #endif /*CONFIG_LIBUSHELL_MPK */
 #endif
 	UK_ASSERT(addr);
@@ -328,8 +360,12 @@ static int ushell_process_cmd(int argc, char *argv[], int ushell_mounted)
 		ushell_cat(argc, argv);
 	} else if (!strcmp(cmd, "load")) {
 		int r = ushell_load_symbol(argv[1]);
-		snprintf(buf, sizeof(buf), "Load %d symbols\n", r);
-		ushell_puts(buf);
+		if (r == -1) {
+			unikraft_call_wrapper(snprintf, buf, sizeof(buf), "Load error: %d\n", r);
+		} else {
+			unikraft_call_wrapper(snprintf, buf, sizeof(buf), "Load %d symbols\n", r);
+		}
+		unikraft_call_wrapper(ushell_puts, buf);
 #ifdef CONFIG_LIBUKSIGNAL
 	} else if (!strcmp(cmd, "kill")) {
 		if (argc >= 2) {
@@ -346,9 +382,61 @@ static int ushell_process_cmd(int argc, char *argv[], int ushell_mounted)
 		if (argc >= 2) {
 			n = atoi(argv[1]);
 		}
-		set_count(n);
+		unikraft_call_wrapper(set_count, n);
 #endif
-	} else if (!strcmp(cmd, "quit")) {
+#ifdef CONFIG_LIBUSHELL_TEST_MPK
+	} else if (!strcmp(cmd, "test_var_read")) {
+		UK_ASSERT(ushell_mpk_test_var == 7);
+		ushell_puts("Successfully read global variable\n");
+	} else if (!strcmp(cmd, "test_var_write")) {
+		UK_ASSERT(ushell_mpk_test_var == 7);
+		ushell_puts("Writing in a global variable should fail\n");
+		ushell_mpk_test_var = 42;
+	} else if (!strcmp(cmd, "test_var_write_wrapper")) {
+		UK_ASSERT(ushell_mpk_test_var == 7);
+		unikraft_write_var(ushell_mpk_test_var, 42);
+		UK_ASSERT(ushell_mpk_test_var == 42);
+		unikraft_write_var(ushell_mpk_test_var, 7);
+		ushell_puts("Successfully write global variable\n");
+	} else if (!strcmp(cmd, "test_call")) {
+		ushell_puts("Using printf without the wrapper should fail\n");
+		printf("This message should not get displayed\n");
+	} else if (!strcmp(cmd, "test_call_wrapper")) {
+		unikraft_call_wrapper(printf, "hello\n");
+		ushell_puts("Successfully call printf\n");
+	} else if (!strcmp(cmd, "test_alloc")) {
+		char *tst_buf = NULL;
+		int rc = 0;
+
+		ushell_puts("Allocating two continuous pages");
+		unikraft_call_wrapper_ret(tst_buf, uk_memalign,
+					  uk_alloc_get_default(), __PAGE_SIZE,
+					  2 * __PAGE_SIZE);
+		if (!tst_buf) {
+			unikraft_call_wrapper(printf,
+					      "Could not allocate pages\n");
+			ushell_puts("Could not allocate pages\n");
+			return 0;
+		}
+		ushell_puts("Setting protection key to first page\n");
+		unikraft_call_wrapper_ret(rc, pkey_mprotect, tst_buf,
+					  __PAGE_SIZE, PROT_READ | PROT_WRITE,
+					  raw_key);
+		if (rc < 0) {
+			unikraft_call_wrapper(uk_pr_err,
+					"Could not set pkey for thread stack %d\n", errno);
+			ushell_puts("Could not set pkey for allocated page\n");
+			unikraft_call_wrapper(uk_free, uk_alloc_get_default(),
+					      tst_buf);
+			return 0;
+		}
+		ushell_puts("Writing in the first page should be sucessful\n");
+		*tst_buf = 7;
+		ushell_puts("Writing in the second page should fail\n");
+		*(tst_buf + __PAGE_SIZE) = 7;
+		unikraft_call_wrapper(uk_free, uk_alloc_get_default(), tst_buf);
+#endif /* CONFIG_LIBUSHELL_TEST_MPK */
+	} else if (!strcmp(cmd, "quit") || !strcmp(cmd, "exit") ) {
 		ushell_puts("Use Ctrl-C\n");
 		return 0;
 	} else {
@@ -441,6 +529,7 @@ static void ushell_cons_thread(void *arg)
 		uk_pr_err("Could not allocate pkey %d\n", key);
 		return;
 	}
+	raw_key = key;
 	if (key & 0x01) {
 		pbkey |= PAGE_PROT_PKEY0;
 	}
@@ -461,8 +550,11 @@ static void ushell_cons_thread(void *arg)
 #endif /*CONFIG_LIBUSHELL_MPK */
 
 	UK_ASSERT(uevent);
+#ifdef CONFIG_LIBUSHELL_TEST_MPK
+	ushell_mpk_test_var = 7;
+#endif /* CONFIG_LIBUSHELL_TEST_MPK */
 #ifdef CONFIG_LIBUSHELL_MPK
-	disable_write();
+	ushell_disable_write();
 	rc = ushell_alloc_ushell_programs_array();
 	if (rc < 0) {
 		uk_pr_err("Could not allocate programs array\n");
@@ -496,7 +588,7 @@ static void ushell_cons_thread(void *arg)
 		}
 	}
 #ifdef CONFIG_LIBUSHELL_MPK
-	enable_write();
+	ushell_enable_write();
 	/*
 	 * TODO: We might need to do a proper cleanup here.
 	 * Shell's stack will get dree, but we might need to make sure
