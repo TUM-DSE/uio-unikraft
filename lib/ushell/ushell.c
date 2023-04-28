@@ -385,14 +385,69 @@ static int ushell_process_cmd(int argc, char *argv[], int ushell_mounted)
 		unikraft_call_wrapper(set_count, n);
 #endif
 #ifdef CONFIG_LIBUSHELL_BPF
-	} else if (!strcmp(cmd, "bpf_attach")) {
+	} else if (!strcmp(cmd, "bpf_exec")) {
+		int bpf_exec(const char *filename, void *args, size_t args_size,
+			     void (*print_fn)(char *str));
 		if (argc >= 3) {
-			void insert_bpf_program(const char *, const char *);
-			unikraft_call_wrapper(insert_bpf_program, argv[1],
-					      argv[2]);
+			unikraft_call_wrapper(bpf_exec, argv[1], argv[2],
+					      strlen(argv[2]) + 1, ushell_puts);
+		} else if (argc >= 2) {
+			unikraft_call_wrapper(bpf_exec, argv[1], NULL, 0,
+					      ushell_puts);
+		} else {
+			ushell_puts("Usage: bpf_exec <bpf_filename> "
+				    "[<bpf_program_argument>]\n");
+		}
+	} else if (!strcmp(cmd, "bpf_get_addr")) {
+		int bpf_get_addr(const char *function_name,
+				 void (*print_fn)(char *str));
+		if (argc >= 2) {
+			unikraft_call_wrapper(bpf_get_addr, argv[1],
+					      ushell_puts);
+		} else {
+			ushell_puts("Usage: bpf_get_addr <function_name>\n");
+		}
+
+	} else if (!strcmp(cmd, "bpf_attach")) {
+		int bpf_attach(const char *function_name,
+			       const char *bpf_filename,
+			       void (*print_fn)(char *str));
+		if (argc >= 3) {
+			unikraft_call_wrapper(bpf_attach, argv[1], argv[2],
+					      ushell_puts);
 		} else {
 			ushell_puts("Usage: bpf_attach <function_name> "
 				    "<bpf_filename>\n");
+		}
+	} else if (!strcmp(cmd, "bpf_list")) {
+		int bpf_list(const char *function_name,
+			     void (*print_fn)(char *str));
+		if (argc >= 2 && !strcmp(argv[1], "help")) {
+			ushell_puts("Usage: bpf_list [<function_name> ...]\n");
+		} else if (argc >= 2) {
+			for (int i = 1; i < argc; i++) {
+				unikraft_call_wrapper(bpf_list, argv[i],
+						      ushell_puts);
+			}
+		} else {
+			unikraft_call_wrapper(bpf_list, NULL, ushell_puts);
+		}
+	} else if (!strcmp(cmd, "bpf_detach")) {
+		int bpf_detach(const char *function_name,
+			       const char *bpf_filename,
+			       void (*print_fn)(char *str));
+		if (argc >= 3) {
+			for (int i = 2; i < argc; i++) {
+				unikraft_call_wrapper(bpf_detach, argv[1],
+						      argv[i], ushell_puts);
+			}
+		} else if (argc >= 2) {
+			unikraft_call_wrapper(bpf_detach, argv[1], NULL,
+					      ushell_puts);
+
+		} else {
+			ushell_puts("Usage: bpf_detach <function_name> "
+				    "[<bpf_filename> ...]\n");
 		}
 #endif
 #ifdef CONFIG_LIBUSHELL_TEST_MPK
