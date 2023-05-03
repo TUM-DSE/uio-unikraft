@@ -389,6 +389,9 @@ static int ushell_process_cmd(int argc, char *argv[], int ushell_mounted)
 		int bpf_exec(const char *filename, void *args, size_t args_size,
 			     void (*print_fn)(char *str));
 		if (argc >= 3) {
+			snprintf(buf, sizeof(buf), "bin: %s, arg: %s\n",
+				 argv[1], argv[2]);
+			ushell_puts(buf);
 			unikraft_call_wrapper(bpf_exec, argv[1], argv[2],
 					      strlen(argv[2]) + 1, ushell_puts);
 		} else if (argc >= 2) {
