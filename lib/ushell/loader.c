@@ -720,6 +720,11 @@ static int ushell_loader_elf_relocate_symbol(struct ushell_loader_ctx *ctx)
 		Elf64_Sym *sym = elf_get_sym(ctx, sym_idx);
 		Elf64_Sxword sym_addr = elf_get_sym_addr(ctx, sym);
 		if (sym_addr <= 0) {
+			char *name = (char *)(ctx->elf_img)
+				     + (ctx->sections.str->sh_offset + sym->st_name);
+			ushell_puts("FATAL Failed to find symbol: ");
+			ushell_puts(name);
+			ushell_puts("\n");
 			return -1;
 		}
 
