@@ -452,6 +452,28 @@ static int ushell_process_cmd(int argc, char *argv[], int ushell_mounted)
 			ushell_puts("Usage: bpf_detach <function_name> "
 				    "[<bpf_filename> ...]\n");
 		}
+	} else if (!strcmp(cmd, "bpf_map_get")) {
+		if (argc >= 2) {
+			uint64_t key1 = atoi(argv[1]);
+			uint64_t key2 = atoi(argv[2]);
+			uint64_t value;
+			unikraft_call_wrapper_ret(value, bpf_map_get, key1,
+						  key2);
+			snprintf(buf, sizeof(buf), "value: %lu\n", value);
+			ushell_puts(buf);
+		} else {
+			ushell_puts("Usage: bpf_map_get <key1> <key2>\n");
+		}
+	} else if (!strcmp(cmd, "bpf_map_put")) {
+		if (argc >= 3) {
+			uint64_t key1 = atoi(argv[1]);
+			uint64_t key2 = atoi(argv[2]);
+			uint64_t value = atoi(argv[3]);
+			unikraft_call_wrapper(bpf_map_put, key1, key2, value);
+		} else {
+			ushell_puts(
+			    "Usage: bpf_map_put <key1> <key2> <value>\n");
+		}
 #endif
 #ifdef CONFIG_LIBUSHELL_TEST_MPK
 	} else if (!strcmp(cmd, "test_var_read")) {
