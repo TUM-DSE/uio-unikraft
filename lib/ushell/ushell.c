@@ -387,15 +387,17 @@ static int ushell_process_cmd(int argc, char *argv[], int ushell_mounted)
 #ifdef CONFIG_LIBUSHELL_BPF
 	} else if (!strcmp(cmd, "bpf_exec")) {
 		int bpf_exec(const char *filename, void *args, size_t args_size,
-			     void (*print_fn)(char *str));
+			     int debug, void (*print_fn)(char *str));
 		if (argc >= 3) {
-			snprintf(buf, sizeof(buf), "bin: %s, arg: %s\n",
-				 argv[1], argv[2]);
-			ushell_puts(buf);
+			int debug = 0;
+			if (argc >= 4) {
+				debug = atoi(argv[3]);
+			}
 			unikraft_call_wrapper(bpf_exec, argv[1], argv[2],
-					      strlen(argv[2]) + 1, ushell_puts);
+					      strlen(argv[2]) + 1, debug,
+					      ushell_puts);
 		} else if (argc >= 2) {
-			unikraft_call_wrapper(bpf_exec, argv[1], NULL, 0,
+			unikraft_call_wrapper(bpf_exec, argv[1], NULL, 0, 0,
 					      ushell_puts);
 		} else {
 			ushell_puts("Usage: bpf_exec <bpf_filename> "
