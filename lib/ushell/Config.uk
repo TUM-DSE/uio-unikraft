@@ -28,8 +28,9 @@ config LIBUSHELL_TEST_MPK
 	default n
 
 config LIBUSHELL_BPF
-  bool "Enable BPF support (additional commands in ushell)"
-  default n
+	bool "Enable BPF support (additional commands in ushell)"
+	default n
+
 
 endmenu
 endif
