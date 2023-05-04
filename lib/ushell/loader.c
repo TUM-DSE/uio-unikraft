@@ -222,6 +222,11 @@ int ushell_loader_test_func(int n)
 int ushell_symtable_size = 0;
 struct ushell_symbol_table *ushell_symbol_table = NULL;
 
+/* supported format:
+ *  0000000000100050 t gdt64_ds // output of nm command
+ * or
+ *  0000000000100050 gdt64_ds
+ */
 int ushell_load_symbol(char *path)
 {
 	int i;
@@ -273,7 +278,12 @@ int ushell_load_symbol(char *path)
 		char *p, *q;
 		/* TODO: it might need wrapping */
 		long long addr = strtoll(&buf[0], &p, 16);
-		q = p + 1;
+		if (p[0] == ' ' && p[1] != ' ' && p[2] == ' ') {
+			/* skip space, type (e.g., 't' or 'T'), and space */
+			q = p + 3;
+		} else {
+			q = p + 1;
+		}
 		for (p++; *p != '\n'; p++)
 			;
 		*p = '\0';
