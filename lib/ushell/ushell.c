@@ -422,16 +422,29 @@ static int ushell_process_cmd(int argc, char *argv[], int ushell_mounted)
 			ushell_puts("Usage: bpf_exec <bpf_filename> "
 				    "[<bpf_program_argument>]\n");
 		}
+	} else if (!strcmp(cmd, "bpf_get_ret_addr")) {
+		uint64_t bpf_get_ret_addr(const char *function_name);
+		uint64_t addr = 0;
+		if (argc >= 1) {
+			unikraft_call_wrapper_ret(addr, bpf_get_ret_addr,
+						  argv[1]);
+			snprintf(buf, sizeof(buf),
+				 "Ret address from bpf: %#llx\n", addr);
+			ushell_puts(buf);
+		} else {
+			ushell_puts(
+			    "Usage: bpf_get_ret_addr <function_name>\n");
+		}
 	} else if (!strcmp(cmd, "bpf_get_addr")) {
-		int bpf_get_addr(const char *function_name,
-				 void (*print_fn)(char *str));
+		uint64_t bpf_get_addr(const char *function_name);
+		uint64_t addr = 0;
 		if (argc >= 2) {
-			unikraft_call_wrapper(bpf_get_addr, argv[1],
-					      ushell_puts);
+			unikraft_call_wrapper_ret(addr, bpf_get_addr, argv[1]);
+			snprintf(buf, sizeof(buf), "Address: %#llx\n", addr);
+			ushell_puts(buf);
 		} else {
 			ushell_puts("Usage: bpf_get_addr <function_name>\n");
 		}
-
 	} else if (!strcmp(cmd, "bpf_attach")) {
 		int bpf_attach(const char *function_name,
 			       const char *bpf_filename,
