@@ -93,6 +93,13 @@ write_pkru:
 	return 0;
 }
 
+int pkey_is_writable(int key)
+{
+	uint32_t pkru_val = 0;
+	pkru_val = rdpkru();
+	return (pkru_val & (3UL << (key * 2))) == 0;
+}
+
 int pkey_mprotect(void *addr, size_t len, int prot, int key)
 {
 	bool in_use = 0;

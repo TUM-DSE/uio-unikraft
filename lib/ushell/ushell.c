@@ -67,6 +67,12 @@ int ushell_enable_write()
 
 	return rc;
 }
+
+int ushell_write_is_enabled()
+{
+	return pkey_is_writable(DEFAULT_PKEY);
+}
+
 #endif
 
 // #define _USE_MMAP // use mmap()

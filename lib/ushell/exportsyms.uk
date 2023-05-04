@@ -1,4 +1,5 @@
 ushell_init
 ushell_enable_write
 ushell_disable_write
+ushell_write_is_enabled
 ushell_mpk_test_var
