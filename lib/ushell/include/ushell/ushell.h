@@ -15,7 +15,7 @@ extern "C" {
 
 int ushell_disable_write();
 int ushell_enable_write();
-int ushell_is_write_enabled();
+int ushell_write_is_enabled();
 #define unikraft_call_wrapper(fname, ...)                                      \
 	do {                                                                   \
 		if (ushell_write_is_enabled()) {                               \

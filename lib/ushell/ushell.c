@@ -7,7 +7,7 @@
 #include <vfscore/mount.h>
 #include <uk/init.h>
 
-#ifdef CONFIG_LIBPKU
+#ifdef CONFIG_LIBUSHELL_MPK
 #include <uk/pku.h>
 #endif
 
@@ -36,6 +36,19 @@
 
 unsigned long pbkey = 0;
 int raw_key = 0;
+#else
+int ushell_disable_write()
+{
+	return 0;
+}
+int ushell_enable_write()
+{
+	return 0;
+}
+int ushell_write_is_enabled()
+{
+	return 1;
+}
 #endif /*CONFIG_LIBUSHELL_MPK */
 
 // #ifdef CONFIG_LIBUSHELL_TEST_MPK
@@ -49,7 +62,7 @@ UK_LIB_PARAM_STR(fsdev);
 //-------------------------------------
 // ushel API
 
-#ifdef CONFIG_LIBPKU
+#ifdef CONFIG_LIBUSHELL_MPK
 int ushell_disable_write()
 {
 	int rc = pkey_set_perm(PROT_READ, DEFAULT_PKEY);
