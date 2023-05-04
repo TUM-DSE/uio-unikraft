@@ -445,6 +445,19 @@ static int ushell_process_cmd(int argc, char *argv[], int ushell_mounted)
 		} else {
 			ushell_puts("Usage: bpf_get_addr <function_name>\n");
 		}
+	} else if (!strcmp(cmd, "bpf_probe_read")) {
+		uint64_t bpf_probe_read(uint64_t addr, uint64_t size);
+		if (argc >= 3) {
+			uint64_t addr = atoi(argv[1]);
+			uint64_t size = atoi(argv[2]);
+			uint64_t ret = 0;
+			unikraft_call_wrapper_ret(ret, bpf_probe_read, addr,
+						  size);
+			snprintf(buf, sizeof(buf), "Ret: %d\n", ret);
+			ushell_puts(buf);
+		} else {
+			ushell_puts("Usage: bpf_probe_read <addr> <size>\n");
+		}
 	} else if (!strcmp(cmd, "bpf_attach")) {
 		int bpf_attach(const char *function_name,
 			       const char *bpf_filename,
