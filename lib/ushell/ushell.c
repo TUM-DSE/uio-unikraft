@@ -458,6 +458,11 @@ static int ushell_process_cmd(int argc, char *argv[], int ushell_mounted)
 		} else {
 			ushell_puts("Usage: bpf_probe_read <addr> <size>\n");
 		}
+	} else if (!strcmp(cmd, "bpf_time_get_ns")) {
+		uint64_t ns = 0;
+		unikraft_call_wrapper_ret(ns, bpf_time_get_ns);
+		snprintf(buf, sizeof(buf), "Time: %llu\n", ns);
+		ushell_puts(buf);
 	} else if (!strcmp(cmd, "bpf_attach")) {
 		int bpf_attach(const char *function_name,
 			       const char *bpf_filename,
