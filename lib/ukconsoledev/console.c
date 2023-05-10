@@ -105,7 +105,7 @@ int uk_console_put_buffer(struct uk_console_device *cdev, char *buf, int len)
 	UK_ASSERT(cons_data);
 	UK_ASSERT(buf);
 
-	if (len > VTCONS_QBUF_SIZE) {
+	if (len >= VTCONS_QBUF_SIZE) {
 		uk_pr_err("Too big incoming virtio console buffer\n");
 		return -1;
 	}
