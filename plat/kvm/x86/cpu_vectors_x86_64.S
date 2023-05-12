@@ -89,6 +89,22 @@ ENTRY(ASM_TRAP_SYM(\trapname))
 ENTRY(cpu_irq_\irqno)
 	cld
 
+	pushq $0
+	pushq %rax
+	pushq %rcx
+	pushq %rdx
+	xor %ecx, %ecx
+	/* save the original pkru */
+	rdpkru
+	movq %rax, 24(%rsp)
+	/* allow access to all memory */
+	xor %eax, %eax
+	xor %edx, %edx
+	wrpkru
+	popq %rdx
+	popq %rcx
+	popq %rax
+
 	pushq $0                            /* no error code */
 	PUSH_CALLER_SAVE
 	subq $__REGS_PAD_SIZE, %rsp         /* we have some padding */
@@ -99,6 +115,19 @@ ENTRY(cpu_irq_\irqno)
 	addq $__REGS_PAD_SIZE, %rsp         /* we have some padding */
 	POP_CALLER_SAVE
 	addq $8, %rsp
+
+	pushq %rax
+	pushq %rcx
+	pushq %rdx
+	/* restore the original pkru */
+	movq 24(%rsp), %rax
+	xor %rcx, %rcx
+	xor %rdx, %rdx
+	wrpkru
+	popq %rdx
+	popq %rcx
+	popq %rax
+	addq $8, %rsp // remove the pkru value
 
 	iretq
 .endm
