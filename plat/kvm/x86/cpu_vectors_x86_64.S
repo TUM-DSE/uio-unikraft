@@ -24,7 +24,11 @@
  */
 /* Taken from solo5 */
 
+#include <x86/cpu_defs.h>
 #include <x86/traps.h>
+
+/* necessary for CONFIG_ macros to be accessible */
+#include <uk/config.h>
 
 #define ENTRY(X)     .global X ; .type X, @function ; X:
 
@@ -89,6 +93,29 @@ ENTRY(ASM_TRAP_SYM(\trapname))
 ENTRY(cpu_irq_\irqno)
 	cld
 
+#if CONFIG_HAVE_X86PKU
+	pushq $0 /* reserve space to save the original pkru */
+	pushq %rax
+	pushq %rcx
+	pushq %rdx
+	xor %ecx, %ecx
+	/* check if PKU is enabled */
+	movq %cr4, %rax
+	testq $(X86_CR4_PKE), %rax
+	jz 1f
+	/* save the original pkru */
+	rdpkru
+	movq %rax, 24(%rsp)
+	/* allow access to all memory */
+	xor %eax, %eax
+	xor %edx, %edx
+	wrpkru
+1:
+	popq %rdx
+	popq %rcx
+	popq %rax
+#endif /* CONFIG_HAVE_X86PKU */
+
 	pushq $0                            /* no error code */
 	PUSH_CALLER_SAVE
 	subq $__REGS_PAD_SIZE, %rsp         /* we have some padding */
@@ -99,6 +126,26 @@ ENTRY(cpu_irq_\irqno)
 	addq $__REGS_PAD_SIZE, %rsp         /* we have some padding */
 	POP_CALLER_SAVE
 	addq $8, %rsp
+
+#if CONFIG_HAVE_X86PKU
+	pushq %rax
+	pushq %rcx
+	pushq %rdx
+	/* check if PKU is enabled */
+	movq %cr4, %rax
+	testq $(X86_CR4_PKE), %rax
+	jz 2f
+	/* restore the original pkru */
+	movq 24(%rsp), %rax
+	xor %rcx, %rcx
+	xor %rdx, %rdx
+	wrpkru
+2:
+	popq %rdx
+	popq %rcx
+	popq %rax
+	addq $8, %rsp // remove the pkru value
+#endif /* CONFIG_HAVE_X86PKU */
 
 	iretq
 .endm
