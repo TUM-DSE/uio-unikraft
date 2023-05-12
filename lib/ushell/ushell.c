@@ -7,7 +7,7 @@
 #include <vfscore/mount.h>
 #include <uk/init.h>
 
-#ifdef CONFIG_LIBPKU
+#ifdef CONFIG_LIBUSHELL_MPK
 #include <uk/pku.h>
 #endif
 
@@ -36,6 +36,19 @@
 
 unsigned long pbkey = 0;
 int raw_key = 0;
+#else
+int ushell_disable_write()
+{
+	return 0;
+}
+int ushell_enable_write()
+{
+	return 0;
+}
+int ushell_write_is_enabled()
+{
+	return 1;
+}
 #endif /*CONFIG_LIBUSHELL_MPK */
 
 // #ifdef CONFIG_LIBUSHELL_TEST_MPK
@@ -49,7 +62,7 @@ UK_LIB_PARAM_STR(fsdev);
 //-------------------------------------
 // ushel API
 
-#ifdef CONFIG_LIBPKU
+#ifdef CONFIG_LIBUSHELL_MPK
 int ushell_disable_write()
 {
 	int rc = pkey_set_perm(PROT_READ, DEFAULT_PKEY);
@@ -67,6 +80,12 @@ int ushell_enable_write()
 
 	return rc;
 }
+
+int ushell_write_is_enabled()
+{
+	return pkey_is_writable(DEFAULT_PKEY);
+}
+
 #endif
 
 // #define _USE_MMAP // use mmap()
@@ -383,6 +402,130 @@ static int ushell_process_cmd(int argc, char *argv[], int ushell_mounted)
 			n = atoi(argv[1]);
 		}
 		unikraft_call_wrapper(set_count, n);
+#endif
+#ifdef CONFIG_LIBUSHELL_BPF
+	} else if (!strcmp(cmd, "bpf_exec")) {
+		int bpf_exec(const char *filename, void *args, size_t args_size,
+			     int debug, void (*print_fn)(char *str));
+		if (argc >= 3) {
+			int debug = 0;
+			if (argc >= 4) {
+				debug = atoi(argv[3]);
+			}
+			unikraft_call_wrapper(bpf_exec, argv[1], argv[2],
+					      strlen(argv[2]) + 1, debug,
+					      ushell_puts);
+		} else if (argc >= 2) {
+			unikraft_call_wrapper(bpf_exec, argv[1], NULL, 0, 0,
+					      ushell_puts);
+		} else {
+			ushell_puts("Usage: bpf_exec <bpf_filename> "
+				    "[<bpf_program_argument>]\n");
+		}
+	} else if (!strcmp(cmd, "bpf_get_ret_addr")) {
+		uint64_t bpf_get_ret_addr(const char *function_name);
+		uint64_t addr = 0;
+		if (argc >= 1) {
+			unikraft_call_wrapper_ret(addr, bpf_get_ret_addr,
+						  argv[1]);
+			snprintf(buf, sizeof(buf),
+				 "Ret address from bpf: %#llx\n", addr);
+			ushell_puts(buf);
+		} else {
+			ushell_puts(
+			    "Usage: bpf_get_ret_addr <function_name>\n");
+		}
+	} else if (!strcmp(cmd, "bpf_get_addr")) {
+		uint64_t bpf_get_addr(const char *function_name);
+		uint64_t addr = 0;
+		if (argc >= 2) {
+			unikraft_call_wrapper_ret(addr, bpf_get_addr, argv[1]);
+			snprintf(buf, sizeof(buf), "Address: %#llx\n", addr);
+			ushell_puts(buf);
+		} else {
+			ushell_puts("Usage: bpf_get_addr <function_name>\n");
+		}
+	} else if (!strcmp(cmd, "bpf_probe_read")) {
+		uint64_t bpf_probe_read(uint64_t addr, uint64_t size);
+		if (argc >= 3) {
+			uint64_t addr = atoi(argv[1]);
+			uint64_t size = atoi(argv[2]);
+			uint64_t ret = 0;
+			unikraft_call_wrapper_ret(ret, bpf_probe_read, addr,
+						  size);
+			snprintf(buf, sizeof(buf), "Ret: %d\n", ret);
+			ushell_puts(buf);
+		} else {
+			ushell_puts("Usage: bpf_probe_read <addr> <size>\n");
+		}
+	} else if (!strcmp(cmd, "bpf_time_get_ns")) {
+		uint64_t ns = 0;
+		unikraft_call_wrapper_ret(ns, bpf_time_get_ns);
+		snprintf(buf, sizeof(buf), "Time: %llu\n", ns);
+		ushell_puts(buf);
+	} else if (!strcmp(cmd, "bpf_attach")) {
+		int bpf_attach(const char *function_name,
+			       const char *bpf_filename,
+			       void (*print_fn)(char *str));
+		if (argc >= 3) {
+			unikraft_call_wrapper(bpf_attach, argv[1], argv[2],
+					      ushell_puts);
+		} else {
+			ushell_puts("Usage: bpf_attach <function_name> "
+				    "<bpf_filename>\n");
+		}
+	} else if (!strcmp(cmd, "bpf_list")) {
+		int bpf_list(const char *function_name,
+			     void (*print_fn)(char *str));
+		if (argc >= 2 && !strcmp(argv[1], "help")) {
+			ushell_puts("Usage: bpf_list [<function_name> ...]\n");
+		} else if (argc >= 2) {
+			for (int i = 1; i < argc; i++) {
+				unikraft_call_wrapper(bpf_list, argv[i],
+						      ushell_puts);
+			}
+		} else {
+			unikraft_call_wrapper(bpf_list, NULL, ushell_puts);
+		}
+	} else if (!strcmp(cmd, "bpf_detach")) {
+		int bpf_detach(const char *function_name,
+			       const char *bpf_filename,
+			       void (*print_fn)(char *str));
+		if (argc >= 3) {
+			for (int i = 2; i < argc; i++) {
+				unikraft_call_wrapper(bpf_detach, argv[1],
+						      argv[i], ushell_puts);
+			}
+		} else if (argc >= 2) {
+			unikraft_call_wrapper(bpf_detach, argv[1], NULL,
+					      ushell_puts);
+
+		} else {
+			ushell_puts("Usage: bpf_detach <function_name> "
+				    "[<bpf_filename> ...]\n");
+		}
+	} else if (!strcmp(cmd, "bpf_map_get")) {
+		if (argc >= 2) {
+			uint64_t key1 = atoi(argv[1]);
+			uint64_t key2 = atoi(argv[2]);
+			uint64_t value;
+			unikraft_call_wrapper_ret(value, bpf_map_get, key1,
+						  key2);
+			snprintf(buf, sizeof(buf), "value: %lu\n", value);
+			ushell_puts(buf);
+		} else {
+			ushell_puts("Usage: bpf_map_get <key1> <key2>\n");
+		}
+	} else if (!strcmp(cmd, "bpf_map_put")) {
+		if (argc >= 3) {
+			uint64_t key1 = atoi(argv[1]);
+			uint64_t key2 = atoi(argv[2]);
+			uint64_t value = atoi(argv[3]);
+			unikraft_call_wrapper(bpf_map_put, key1, key2, value);
+		} else {
+			ushell_puts(
+			    "Usage: bpf_map_put <key1> <key2> <value>\n");
+		}
 #endif
 #ifdef CONFIG_LIBUSHELL_TEST_MPK
 	} else if (!strcmp(cmd, "test_var_read")) {
