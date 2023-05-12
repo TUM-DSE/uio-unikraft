@@ -690,6 +690,20 @@ static void ushell_cons_thread(void *arg)
 		uk_pr_err("Could not set pkey for thread stack %d\n", errno);
 		return;
 	}
+	extern char cpu_intr_stack[STACK_SIZE];
+	extern char cpu_trap_stack[STACK_SIZE];
+	rc = pkey_mprotect(cpu_intr_stack, STACK_SIZE, PROT_READ | PROT_WRITE,
+			   key);
+	if (rc < 0) {
+		uk_pr_err("Could not set pkey for intterupt stack %d\n", errno);
+		return;
+	}
+	rc = pkey_mprotect(cpu_trap_stack, STACK_SIZE, PROT_READ | PROT_WRITE,
+			   key);
+	if (rc < 0) {
+		uk_pr_err("Could not set pkey for trap stack %d\n", errno);
+		return;
+	}
 #endif /*CONFIG_LIBUSHELL_MPK */
 
 	UK_ASSERT(uevent);
