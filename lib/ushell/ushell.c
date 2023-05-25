@@ -393,7 +393,7 @@ static int ushell_process_cmd(int argc, char *argv[], int ushell_mounted)
 		unikraft_call_wrapper(ushell_puts, buf);
 
 	} else if (!strcmp(cmd, "ushell-env")) {
-		ushell_puts("ushell-env='");
+		ushell_puts("ushell-env:=");
 		ushell_puts("mount_point=");
 		ushell_puts(fsdev);
 		ushell_puts(":");
@@ -405,7 +405,7 @@ static int ushell_process_cmd(int argc, char *argv[], int ushell_mounted)
 		 ushell_puts("anotherKey=");
 		 ushell_puts(anotherValue);
 		*/
-		ushell_puts("'\n");
+		ushell_puts("\n");
 
 #ifdef CONFIG_LIBUKSIGNAL
 	} else if (!strcmp(cmd, "kill")) {
