@@ -591,29 +591,30 @@ static int ushell_process_cmd(int argc, char *argv[], int ushell_mounted)
 	return 0;
 }
 
+char *ushellMountPoint = "/ushell";
+
 static int ushell_mount()
 {
 	const char *rootfs = "9pfs";
 	int rootflags = 0;
-	char *path = "/ushell";
 	const char *rootopts = "";
 	int ret = 0;
 
 #if 1
-	unikraft_call_wrapper_ret(ret, mkdir, path, S_IRWXU);
+	unikraft_call_wrapper_ret(ret, mkdir, ushellMountPoint, S_IRWXU);
 	if (ret != 0 && errno != EEXIST) {
 		/* Root file system is not mounted. Therefore we will mount
 		 * ushell fs as a rootfs.
 		 */
-		path = "/";
+		ushellMountPoint[1] = '\0';
 	}
 #endif
 
-	unikraft_call_wrapper(uk_pr_info, "ushell: mount fs to %s\n", path);
-	unikraft_call_wrapper_ret(ret, mount, fsdev, path, rootfs, rootflags, rootopts);
+	unikraft_call_wrapper(uk_pr_info, "ushell: mount fs to %s\n", ushellMountPoint);
+	unikraft_call_wrapper_ret(ret, mount, fsdev, ushellMountPoint, rootfs, rootflags, rootopts);
 	if (ret != 0) {
 		unikraft_call_wrapper(uk_pr_crit, "Failed to mount %s (%s) at %s: errno=%d\n", fsdev,
-			   rootfs, path, errno);
+			   rootfs, ushellMountPoint, errno);
 		return -1;
 	}
 
