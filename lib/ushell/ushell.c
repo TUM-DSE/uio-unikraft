@@ -392,19 +392,11 @@ static int ushell_process_cmd(int argc, char *argv[], int ushell_mounted)
 		}
 		unikraft_call_wrapper(ushell_puts, buf);
 
-	} else if (!strcmp(cmd, "ushell-env")) {
-		ushell_puts("ushell-env:=");
-		ushell_puts("mount_point=");
+	} else if (!strcmp(cmd, "ushell-mount-info")) {
+		ushell_puts("mount-info=");
 		ushell_puts(fsdev);
 		ushell_puts(":");
 		ushell_puts(ushellMountPoint);
-		/*
-		// If you have more env variables to be printed, you can specify
-		them here as:
-		 ushell_puts(";");
-		 ushell_puts("anotherKey=");
-		 ushell_puts(anotherValue);
-		*/
 		ushell_puts("\n");
 
 #ifdef CONFIG_LIBUKSIGNAL
