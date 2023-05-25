@@ -591,7 +591,9 @@ static int ushell_process_cmd(int argc, char *argv[], int ushell_mounted)
 	return 0;
 }
 
-char *ushellMountPoint = "/ushell";
+static const char *USHELL_MOUNT_POINT_DEFAULT = "/ushell";
+static const char *USHELL_MOUNT_POINT_FALLBACK = "/";
+static const char *ushellMountPoint = NULL;
 
 static int ushell_mount()
 {
@@ -600,13 +602,19 @@ static int ushell_mount()
 	const char *rootopts = "";
 	int ret = 0;
 
+	// override default mount point
+	ushell_enable_write();
+	ushellMountPoint = USHELL_MOUNT_POINT_DEFAULT;
+	ushell_disable_write();
 #if 1
 	unikraft_call_wrapper_ret(ret, mkdir, ushellMountPoint, S_IRWXU);
 	if (ret != 0 && errno != EEXIST) {
 		/* Root file system is not mounted. Therefore we will mount
 		 * ushell fs as a rootfs.
 		 */
-		ushellMountPoint[1] = '\0';
+		ushell_enable_write();
+		ushellMountPoint = USHELL_MOUNT_POINT_FALLBACK;
+		ushell_disable_write();
 	}
 #endif
 
