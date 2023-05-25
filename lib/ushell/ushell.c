@@ -159,7 +159,7 @@ void ushell_free_memory(void *addr, unsigned long size)
 
 //-------------------------------------
 
-static void ushell_puts_n(char *str, size_t len)
+static void ushell_puts_n(const char *str, size_t len)
 {
 	unikraft_call_wrapper(uk_console_puts, str, len);
 }
