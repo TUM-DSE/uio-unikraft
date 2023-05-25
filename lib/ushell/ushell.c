@@ -164,7 +164,7 @@ static void ushell_puts_n(const char *str, size_t len)
 	unikraft_call_wrapper(uk_console_puts, str, len);
 }
 
-void ushell_puts(char *str)
+void ushell_puts(const char *str)
 {
 	size_t len = strlen(str);
 	ushell_puts_n(str, len);
@@ -380,6 +380,12 @@ static int ushell_process_cmd(int argc, char *argv[], int ushell_mounted)
 			unikraft_call_wrapper(snprintf, buf, sizeof(buf), "Load %d symbols\n", r);
 		}
 		unikraft_call_wrapper(ushell_puts, buf);
+
+	} else if (!strcmp(cmd, "ushell-env")) {
+		ushell_puts(fsdev);
+		ushell_puts(":");
+		ushell_puts("\n");
+
 #ifdef CONFIG_LIBUKSIGNAL
 	} else if (!strcmp(cmd, "kill")) {
 		if (argc >= 2) {

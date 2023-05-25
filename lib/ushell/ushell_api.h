@@ -15,7 +15,7 @@ int ushell_program_run(char *prog_name, int argc, char *argv[], int *retval);
 void ushell_program_free_all();
 int ushell_program_free_prog_name(char *);
 
-void ushell_puts(char *str);
+void ushell_puts(const char *str);
 
 
 #ifdef __cplusplus
