@@ -24,15 +24,16 @@
 #include <string.h>
 #include <stdio.h>
 
-#define size_to_num_pages(size) \
-	        (ALIGN_UP((unsigned long)(size), __PAGE_SIZE) / __PAGE_SIZE)
+#define size_to_num_pages(size)                                                \
+	(ALIGN_UP((unsigned long)(size), __PAGE_SIZE) / __PAGE_SIZE)
 
 #ifdef CONFIG_LIBUSHELL_MPK
 
-#define PKEY_MASK (~(PAGE_PROT_PKEY0 | PAGE_PROT_PKEY1 | PAGE_PROT_PKEY2 | \
-                                                PAGE_PROT_PKEY3))
-#define CLEAR_PKEY(prot)                (prot & PKEY_MASK)
-#define INSTALL_PKEY(prot, pkey)        (prot | pkey)
+#define PKEY_MASK                                                              \
+	(~(PAGE_PROT_PKEY0 | PAGE_PROT_PKEY1 | PAGE_PROT_PKEY2                 \
+	   | PAGE_PROT_PKEY3))
+#define CLEAR_PKEY(prot) (prot & PKEY_MASK)
+#define INSTALL_PKEY(prot, pkey) (prot | pkey)
 
 unsigned long pbkey = 0;
 int raw_key = 0;
@@ -52,7 +53,8 @@ int ushell_write_is_enabled()
 #endif /*CONFIG_LIBUSHELL_MPK */
 
 // #ifdef CONFIG_LIBUSHELL_TEST_MPK
-// Define this values even if no MPK support so that exportsysm.uk works correctly
+// Define this values even if no MPK support so that exportsysm.uk works
+// correctly
 int ushell_mpk_test_var;
 // #endif /* CONFIG_LIBUSHELL_TEST_MPK */
 
@@ -67,7 +69,8 @@ int ushell_disable_write()
 {
 	int rc = pkey_set_perm(PROT_READ, DEFAULT_PKEY);
 	if (rc < 0)
-		uk_pr_err("Could not set permisisons for dfault pkey%d\n", errno);
+		uk_pr_err("Could not set permisisons for dfault pkey%d\n",
+			  errno);
 
 	return rc;
 }
@@ -76,7 +79,8 @@ int ushell_enable_write()
 {
 	int rc = pkey_set_perm(PROT_READ | PROT_WRITE, DEFAULT_PKEY);
 	if (rc < 0)
-		uk_pr_err("Could not set permisisons for dfault pkey%d\n", errno);
+		uk_pr_err("Could not set permisisons for dfault pkey%d\n",
+			  errno);
 
 	return rc;
 }
@@ -93,8 +97,8 @@ void *ushell_alloc_memory(unsigned long size)
 {
 	unsigned pages;
 	void *addr = NULL;
-	unsigned long attr = PAGE_ATTR_PROT_READ | PAGE_ATTR_PROT_WRITE
-				     | PAGE_ATTR_PROT_EXEC;
+	unsigned long attr =
+	    PAGE_ATTR_PROT_READ | PAGE_ATTR_PROT_WRITE | PAGE_ATTR_PROT_EXEC;
 
 	pages = size_to_num_pages(size);
 #ifdef _USE_MMAP
@@ -104,7 +108,8 @@ void *ushell_alloc_memory(unsigned long size)
 	addr = mmap(NULL, size, PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANON,
 		    -1, 0);
 	if (code == MAP_FAILED || code == 0) {
-		unikraft_call_wrapper(uk_pr_info, "ushell: mmap failed: code=%ld\n", (long)code);
+		unikraft_call_wrapper(
+		    uk_pr_info, "ushell: mmap failed: code=%ld\n", (long)code);
 		ushell_puts("Failed to run command\n");
 		return;
 	}
@@ -124,8 +129,8 @@ void *ushell_alloc_memory(unsigned long size)
 	// FIXME: find proper vaddr
 	static void *base_addr = (void *)0x80000000;
 	addr = base_addr;
-	unikraft_call_wrapper_ret(rc, ukplat_page_map, pt, (long long)addr, __PADDR_ANY, pages,
-				 attr, 0);
+	unikraft_call_wrapper_ret(rc, ukplat_page_map, pt, (long long)addr,
+				  __PADDR_ANY, pages, attr, 0);
 	UK_ASSERT(rc == 0);
 #ifdef CONFIG_LIBUSHELL_MPK
 	/*
@@ -160,7 +165,6 @@ void ushell_free_memory(void *addr, unsigned long size)
 static const char *USHELL_MOUNT_POINT_DEFAULT = "/ushell";
 static const char *USHELL_MOUNT_POINT_FALLBACK = "/";
 static const char *ushellMountPoint = NULL;
-
 
 //-------------------------------------
 
@@ -380,9 +384,11 @@ static int ushell_process_cmd(int argc, char *argv[], int ushell_mounted)
 	} else if (!strcmp(cmd, "load")) {
 		int r = ushell_load_symbol(argv[1]);
 		if (r == -1) {
-			unikraft_call_wrapper(snprintf, buf, sizeof(buf), "Load error: %d\n", r);
+			unikraft_call_wrapper(snprintf, buf, sizeof(buf),
+					      "Load error: %d\n", r);
 		} else {
-			unikraft_call_wrapper(snprintf, buf, sizeof(buf), "Load %d symbols\n", r);
+			unikraft_call_wrapper(snprintf, buf, sizeof(buf),
+					      "Load %d symbols\n", r);
 		}
 		unikraft_call_wrapper(ushell_puts, buf);
 
@@ -392,6 +398,13 @@ static int ushell_process_cmd(int argc, char *argv[], int ushell_mounted)
 		ushell_puts(fsdev);
 		ushell_puts(":");
 		ushell_puts(ushellMountPoint);
+		/*
+		// If you have more env variables to be printed, you can specify
+		them here as:
+		 ushell_puts(";");
+		 ushell_puts("anotherKey=");
+		 ushell_puts(anotherValue);
+		*/
 		ushell_puts("'\n");
 
 #ifdef CONFIG_LIBUKSIGNAL
@@ -575,8 +588,9 @@ static int ushell_process_cmd(int argc, char *argv[], int ushell_mounted)
 					  __PAGE_SIZE, PROT_READ | PROT_WRITE,
 					  raw_key);
 		if (rc < 0) {
-			unikraft_call_wrapper(uk_pr_err,
-					"Could not set pkey for thread stack %d\n", errno);
+			unikraft_call_wrapper(
+			    uk_pr_err,
+			    "Could not set pkey for thread stack %d\n", errno);
 			ushell_puts("Could not set pkey for allocated page\n");
 			unikraft_call_wrapper(uk_free, uk_alloc_get_default(),
 					      tst_buf);
@@ -588,7 +602,7 @@ static int ushell_process_cmd(int argc, char *argv[], int ushell_mounted)
 		*(tst_buf + __PAGE_SIZE) = 7;
 		unikraft_call_wrapper(uk_free, uk_alloc_get_default(), tst_buf);
 #endif /* CONFIG_LIBUSHELL_TEST_MPK */
-	} else if (!strcmp(cmd, "quit") || !strcmp(cmd, "exit") ) {
+	} else if (!strcmp(cmd, "quit") || !strcmp(cmd, "exit")) {
 		ushell_puts("Use Ctrl-C\n");
 		return 0;
 	} else {
@@ -622,11 +636,14 @@ static int ushell_mount()
 	}
 #endif
 
-	unikraft_call_wrapper(uk_pr_info, "ushell: mount fs to %s\n", ushellMountPoint);
-	unikraft_call_wrapper_ret(ret, mount, fsdev, ushellMountPoint, rootfs, rootflags, rootopts);
+	unikraft_call_wrapper(uk_pr_info, "ushell: mount fs to %s\n",
+			      ushellMountPoint);
+	unikraft_call_wrapper_ret(ret, mount, fsdev, ushellMountPoint, rootfs,
+				  rootflags, rootopts);
 	if (ret != 0) {
-		unikraft_call_wrapper(uk_pr_crit, "Failed to mount %s (%s) at %s: errno=%d\n", fsdev,
-			   rootfs, ushellMountPoint, errno);
+		unikraft_call_wrapper(
+		    uk_pr_crit, "Failed to mount %s (%s) at %s: errno=%d\n",
+		    fsdev, rootfs, ushellMountPoint, errno);
 		return -1;
 	}
 
@@ -663,7 +680,8 @@ static int ushell_split_args(char *buf, char *args[])
 #endif
 		if (i >= USHELL_MAX_ARGS) {
 			// FIXME
-			unikraft_call_wrapper(uk_pr_err, "ushell: too many args: %s\n", buf);
+			unikraft_call_wrapper(
+			    uk_pr_err, "ushell: too many args: %s\n", buf);
 			break;
 		}
 	}
@@ -699,7 +717,8 @@ static void ushell_cons_thread(void *arg)
 	if (key & 0x08) {
 		pbkey |= PAGE_PROT_PKEY3;
 	}
-	rc = pkey_mprotect(ushell_thread->stack, STACK_SIZE, PROT_READ | PROT_WRITE, key);
+	rc = pkey_mprotect(ushell_thread->stack, STACK_SIZE,
+			   PROT_READ | PROT_WRITE, key);
 	if (rc < 0) {
 		uk_pr_err("Could not set pkey for thread stack %d\n", errno);
 		return;
