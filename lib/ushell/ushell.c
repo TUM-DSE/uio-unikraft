@@ -157,6 +157,11 @@ void ushell_free_memory(void *addr, unsigned long size)
 #endif
 }
 
+static const char *USHELL_MOUNT_POINT_DEFAULT = "/ushell";
+static const char *USHELL_MOUNT_POINT_FALLBACK = "/";
+static const char *ushellMountPoint = NULL;
+
+
 //-------------------------------------
 
 static void ushell_puts_n(const char *str, size_t len)
@@ -384,6 +389,7 @@ static int ushell_process_cmd(int argc, char *argv[], int ushell_mounted)
 	} else if (!strcmp(cmd, "ushell-env")) {
 		ushell_puts(fsdev);
 		ushell_puts(":");
+		ushell_puts(ushellMountPoint);
 		ushell_puts("\n");
 
 #ifdef CONFIG_LIBUKSIGNAL
@@ -590,10 +596,6 @@ static int ushell_process_cmd(int argc, char *argv[], int ushell_mounted)
 	}
 	return 0;
 }
-
-static const char *USHELL_MOUNT_POINT_DEFAULT = "/ushell";
-static const char *USHELL_MOUNT_POINT_FALLBACK = "/";
-static const char *ushellMountPoint = NULL;
 
 static int ushell_mount()
 {
