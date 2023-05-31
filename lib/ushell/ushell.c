@@ -179,6 +179,12 @@ void ushell_puts(const char *str)
 	ushell_puts_n(str, len);
 }
 
+static void ushell_print_prompt()
+{
+	ushell_puts("> ");
+}
+
+
 char *strip_str(char *str)
 {
 	char *p = str;
@@ -760,6 +766,7 @@ static void ushell_cons_thread(void *arg)
 	 * to the virtio-console. Discard that input */
 
 	while (1) {
+		ushell_print_prompt();
 		unikraft_call_wrapper_ret(buf, uk_console_get_buf);
 		if (buf == NULL)
 			continue;
