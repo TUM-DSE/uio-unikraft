@@ -407,21 +407,29 @@ static int ushell_process_cmd(int argc, char *argv[], int ushell_mounted)
 	} else if (!strcmp(cmd, "bpf_exec")) {
 		int bpf_exec(const char *filename, void *args, size_t args_size,
 			     int debug, void (*print_fn)(char *str));
+		uint8_t initBpfVM = 255;
 		if (argc >= 3) {
 			int debug = 0;
 			if (argc >= 4) {
 				debug = atoi(argv[3]);
 			}
-			unikraft_call_wrapper(bpf_exec, argv[1], argv[2],
+
+			unikraft_call_wrapper_ret(initBpfVM, bpf_exec, argv[1], argv[2],
 					      strlen(argv[2]) + 1, debug,
 					      ushell_puts);
 		} else if (argc >= 2) {
-			unikraft_call_wrapper(bpf_exec, argv[1], NULL, 0, 0,
+			unikraft_call_wrapper_ret(initBpfVM, bpf_exec, argv[1], NULL, 0, 0,
 					      ushell_puts);
 		} else {
 			ushell_puts("Usage: bpf_exec <bpf_filename> "
 				    "[<bpf_program_argument>]\n");
 		}
+
+		if(bpf_exec != 0) {
+			snprintf(buf, sizeof(buf), "Failed to initialize bpf runtime: %x\n", initBpfVM);
+			ushell_puts(buf);
+		}
+
 	} else if (!strcmp(cmd, "bpf_get_ret_addr")) {
 		uint64_t bpf_get_ret_addr(const char *function_name);
 		uint64_t addr = 0;
