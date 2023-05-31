@@ -425,7 +425,7 @@ static int ushell_process_cmd(int argc, char *argv[], int ushell_mounted)
 				    "[<bpf_program_argument>]\n");
 		}
 
-		if(bpf_exec != 0) {
+		if(initBpfVM != 0) {
 			snprintf(buf, sizeof(buf), "Failed to initialize bpf runtime: %x\n", initBpfVM);
 			ushell_puts(buf);
 		}
