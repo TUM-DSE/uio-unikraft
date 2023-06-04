@@ -424,6 +424,9 @@ static int ushell_process_cmd(int argc, char *argv[], int ushell_mounted)
 		unikraft_call_wrapper(set_count, n);
 #endif
 #ifdef CONFIG_LIBUSHELL_BPF
+	} else if (!strcmp(cmd, "ushell-bpf-helper-info")) {
+		print_helper_specs(ushell_puts);
+		
 	} else if (!strcmp(cmd, "bpf_exec")) {
 		int bpf_exec(const char *filename, void *args, size_t args_size,
 			     int debug, void (*print_fn)(char *str));
