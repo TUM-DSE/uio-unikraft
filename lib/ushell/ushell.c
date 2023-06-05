@@ -404,7 +404,14 @@ static int ushell_process_cmd(int argc, char *argv[], int ushell_mounted)
 		ushell_puts(":");
 		ushell_puts(ushellMountPoint);
 		ushell_puts("\n");
+	} else if (!strcmp(cmd, "ushell-bpf-helper-info")) {
+#ifdef CONFIG_LIBUSHELL_BPF
+		init_builtin_bpf_helpers();
+		print_helper_specs(ushell_puts);
+#endif
+		ushell_puts("\n");
 
+	}
 #ifdef CONFIG_LIBUKSIGNAL
 	} else if (!strcmp(cmd, "kill")) {
 		if (argc >= 2) {
@@ -424,13 +431,7 @@ static int ushell_process_cmd(int argc, char *argv[], int ushell_mounted)
 		unikraft_call_wrapper(set_count, n);
 #endif
 #ifdef CONFIG_LIBUSHELL_BPF
-	} else if (!strcmp(cmd, "ushell-bpf-helper-info")) {
-		init_builtin_bpf_helpers();
-
-		print_helper_specs(ushell_puts);
-		ushell_puts("\n");
-		
-	} else if (!strcmp(cmd, "bpf_exec")) {
+	 else if (!strcmp(cmd, "bpf_exec")) {
 		int bpf_exec(const char *filename, void *args, size_t args_size,
 			     int debug, void (*print_fn)(char *str));
 		uint8_t initBpfVM = 255;
