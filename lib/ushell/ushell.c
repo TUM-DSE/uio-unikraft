@@ -184,7 +184,6 @@ static void ushell_print_prompt()
 	ushell_puts("> ");
 }
 
-
 char *strip_str(char *str)
 {
 	char *p = str;
@@ -406,12 +405,13 @@ static int ushell_process_cmd(int argc, char *argv[], int ushell_mounted)
 		ushell_puts("\n");
 	} else if (!strcmp(cmd, "ushell-bpf-helper-info")) {
 #ifdef CONFIG_LIBUSHELL_BPF
+		void *init_builtin_bpf_helpers();
+		void print_helper_specs(void (*print_fn)(const char *));
+
 		init_builtin_bpf_helpers();
 		print_helper_specs(ushell_puts);
 #endif
 		ushell_puts("\n");
-
-	}
 #ifdef CONFIG_LIBUKSIGNAL
 	} else if (!strcmp(cmd, "kill")) {
 		if (argc >= 2) {
@@ -431,7 +431,7 @@ static int ushell_process_cmd(int argc, char *argv[], int ushell_mounted)
 		unikraft_call_wrapper(set_count, n);
 #endif
 #ifdef CONFIG_LIBUSHELL_BPF
-	 else if (!strcmp(cmd, "bpf_exec")) {
+	} else if (!strcmp(cmd, "bpf_exec")) {
 		int bpf_exec(const char *filename, void *args, size_t args_size,
 			     int debug, void (*print_fn)(char *str));
 		uint8_t initBpfVM = 255;
@@ -441,19 +441,21 @@ static int ushell_process_cmd(int argc, char *argv[], int ushell_mounted)
 				debug = atoi(argv[3]);
 			}
 
-			unikraft_call_wrapper_ret(initBpfVM, bpf_exec, argv[1], argv[2],
-					      strlen(argv[2]) + 1, debug,
-					      ushell_puts);
+			unikraft_call_wrapper_ret(initBpfVM, bpf_exec, argv[1],
+						  argv[2], strlen(argv[2]) + 1,
+						  debug, ushell_puts);
 		} else if (argc >= 2) {
-			unikraft_call_wrapper_ret(initBpfVM, bpf_exec, argv[1], NULL, 0, 0,
-					      ushell_puts);
+			unikraft_call_wrapper_ret(initBpfVM, bpf_exec, argv[1],
+						  NULL, 0, 0, ushell_puts);
 		} else {
 			ushell_puts("Usage: bpf_exec <bpf_filename> "
 				    "[<bpf_program_argument>]\n");
 		}
 
-		if(initBpfVM != 0) {
-			snprintf(buf, sizeof(buf), "Failed to initialize bpf runtime: %x\n", initBpfVM);
+		if (initBpfVM != 0) {
+			snprintf(buf, sizeof(buf),
+				 "Failed to initialize bpf runtime: %x\n",
+				 initBpfVM);
 			ushell_puts(buf);
 		}
 
