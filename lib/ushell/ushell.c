@@ -404,6 +404,7 @@ static int ushell_process_cmd(int argc, char *argv[], int ushell_mounted)
 		ushell_puts(ushellMountPoint);
 		ushell_puts("\n");
 	} else if (!strcmp(cmd, "ushell-bpf-helper-info")) {
+		ushell_puts("bpf-helper-info=");
 #ifdef CONFIG_LIBUSHELL_BPF
 		void *init_builtin_bpf_helpers();
 		void print_helper_specs(void (*print_fn)(const char *));
