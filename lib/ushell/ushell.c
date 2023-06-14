@@ -404,15 +404,23 @@ static int ushell_process_cmd(int argc, char *argv[], int ushell_mounted)
 		ushell_puts(ushellMountPoint);
 		ushell_puts("\n");
 	} else if (!strcmp(cmd, "ushell-bpf-helper-info")) {
-		ushell_puts("bpf-helper-info=");
-#ifdef CONFIG_LIBUSHELL_BPF
-		void *init_builtin_bpf_helpers();
-		void print_helper_specs(void (*print_fn)(const char *));
 
-		init_builtin_bpf_helpers();
-		print_helper_specs(ushell_puts);
+        void *init_builtin_bpf_helpers();
+        void print_helper_specs(void (*print_fn)(const char *));
+        void print_prog_type_infos(void (*print_fn)(const char *));
+
+#ifdef CONFIG_LIBUSHELL_BPF
+        unikraft_call_wrapper(init_builtin_bpf_helpers);
 #endif
+		ushell_puts("bpf-helper-info=");
+        print_helper_specs(ushell_puts);
 		ushell_puts("\n");
+
+        ushell_puts("bpf-prog-type-info=");
+        print_prog_type_infos(ushell_puts);
+        ushell_puts("\n");
+
+
 #ifdef CONFIG_LIBUKSIGNAL
 	} else if (!strcmp(cmd, "kill")) {
 		if (argc >= 2) {
