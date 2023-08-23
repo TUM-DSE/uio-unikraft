@@ -1765,9 +1765,13 @@ static int virtio_pci_drv_init(struct uk_alloc *drv_allocator)
 	return 0;
 }
 
+#define PCI_DEVICE_ID_VIRTIO_10_BASE  0x1040
+#define VIRTIO_ID_FS 26
+#define PCI_VIRTIO_VIRTIOFS_ID  (PCI_DEVICE_ID_VIRTIO_10_BASE + VIRTIO_ID_FS)
+
 /* TODOFS: change to accept only modern device IDs */
 static const struct pci_device_id virtio_pci_ids[] = {
-	{PCI_DEVICE_ID(VENDOR_QUMRANET_VIRTIO, PCI_ANY_ID)},
+	{PCI_DEVICE_ID(VENDOR_QUMRANET_VIRTIO, PCI_VIRTIO_VIRTIOFS_ID)},
 	/* End of Driver List */
 	{PCI_ANY_DEVICE_ID},
 };

@@ -447,10 +447,17 @@ static int virtio_pci_drv_init(struct uk_alloc *drv_allocator)
 	return 0;
 }
 
+#define PCI_VIRTIO_NET_ID 0x1000
+#define PCI_VIRTIO_BLK_ID 0x1001
+#define PCI_VIRTIO_CONSLE_ID 0x1003
+#define PCI_VIRTIO_9P_ID 0x1009
+
 // TODOFS: rename this file to virtio_pci_legacy.c
-/* TODOFS: specify the legacy ID range */
 static const struct pci_device_id virtio_pci_ids[] = {
-	{PCI_DEVICE_ID(VENDOR_QUMRANET_VIRTIO, PCI_ANY_ID)},
+	{PCI_DEVICE_ID(VENDOR_QUMRANET_VIRTIO, PCI_VIRTIO_NET_ID)},
+	{PCI_DEVICE_ID(VENDOR_QUMRANET_VIRTIO, PCI_VIRTIO_BLK_ID)},
+	{PCI_DEVICE_ID(VENDOR_QUMRANET_VIRTIO, PCI_VIRTIO_CONSLE_ID)},
+	{PCI_DEVICE_ID(VENDOR_QUMRANET_VIRTIO, PCI_VIRTIO_9P_ID)},
 	/* End of Driver List */
 	{PCI_ANY_DEVICE_ID},
 };
@@ -460,4 +467,4 @@ __unused static struct pci_driver virtio_pci_drv = {
 	.init = virtio_pci_drv_init,
 	.add_dev = virtio_pci_add_dev
 };
-// PCI_REGISTER_DRIVER(&virtio_pci_drv);
+PCI_REGISTER_DRIVER(&virtio_pci_drv);
