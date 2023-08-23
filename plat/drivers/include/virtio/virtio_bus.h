@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: BSD-3-Clause */
 /*
  * Authors: Sharan Santhanam <sharan.santhanam@neclab.eu>
+ * 	    Andrii Strynzha  <a.strynzha@gmail.com>
  *
  * Copyright (c) 2018, NEC Europe Ltd., NEC Corporation. All rights reserved.
  *
@@ -33,6 +34,8 @@
 #ifndef __PLAT_DRV_VIRTIO_H
 #define __PLAT_DRV_VIRTIO_H
 
+#include "uk/assert.h"
+#include <stdint.h>
 #include <uk/config.h>
 #include <errno.h>
 #include <uk/errptr.h>
@@ -43,6 +46,7 @@
 #include <virtio/virtio_config.h>
 #include <virtio/virtqueue.h>
 #include <uk/ctors.h>
+#include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -92,12 +96,16 @@ struct virtio_dev_id {
 struct virtio_config_ops {
 	/** Resetting the device */
 	void (*device_reset)(struct virtio_dev *vdev);
-	/** Set configuration option */
+	/** Write-access of the device-specific configuration */
 	int (*config_set)(struct virtio_dev *vdev, __u16 offset,
 			  const void *buf, __u32 len);
-	/** Get configuration option */
+	/** Read-access of the device-specific configuration */
 	int (*config_get)(struct virtio_dev *vdev, __u16 offset, void *buf,
 			  __u32 len, __u8 type_len);
+	int (*modern_config_get) (struct virtio_dev *vdev, __u8 offset,
+				  void *buf, __u8 type_len);
+	int (*modern_config_set) (struct virtio_dev *vdev, __u8 offset,
+				  const void *buf, __u8 type_len);
 	/** Get the feature */
 	__u64 (*features_get)(struct virtio_dev *vdev);
 	/** Set the feature */
@@ -114,6 +122,11 @@ struct virtio_config_ops {
 				      struct uk_alloc *a);
 	void (*vq_release)(struct virtio_dev *vdev, struct virtqueue *vq,
 				struct uk_alloc *a);
+	void (*vq_enable)(struct virtio_dev *vdev, struct virtqueue *vq);
+
+	uint64_t (*get_shm_addr)(struct virtio_dev *vdev, uint8_t shm_id);
+	uint64_t (*get_shm_length)(struct virtio_dev *vdev, uint8_t shm_id);
+	bool (*shm_present)(struct virtio_dev *vdev, uint8_t shm_id);
 };
 
 /**
@@ -131,7 +144,20 @@ struct virtio_driver {
 };
 
 /**
- * The structure defines the virtio device.
+ * @brief Virtio device from the perspective of a virtio device
+ * driver (e.g. virtio_9p.c).
+ *
+ * Virtio device that a Virtio device driver gets to pass it as a parameter to
+ * the virtio_config_ops callback functions, so that a PCI driver (e.g.
+ * virtio_pci_modern.c) can identify the underlying device (e.g. virtio_pci_dev)
+ *
+ * This device representation is independent of transport (e.g. PCI/MMIO).
+ * All the information (e.g. features) is already parsed from the transport.
+ *
+ *
+ * TODOFS: think if this is usable
+ * for a modern device. Probably not, because it has some new features, like
+ * shared memory?
  */
 struct virtio_dev {
 	/* Feature bit describing the virtio device */
@@ -142,7 +168,7 @@ struct virtio_dev {
 	void *priv;
 	/* Virtio device identifier */
 	struct virtio_dev_id id;
-	/* List of the config operations */
+	/* List of the config operations. Operate on a specific transport. */
 	struct virtio_config_ops *cops;
 	/* Reference to the virtio driver for the device */
 	struct virtio_driver *vdrv;
@@ -154,6 +180,7 @@ struct virtio_dev {
  * Operation exported by the virtio device.
  */
 int virtio_bus_register_device(struct virtio_dev *vdev);
+int virtio_bus_register_modern_device(struct virtio_dev *vdev);
 void _virtio_bus_register_driver(struct virtio_driver *vdrv);
 
 /**
@@ -201,6 +228,20 @@ static inline int virtio_dev_status_update(struct virtio_dev *vdev, __u8 status)
 	return rc;
 }
 
+static inline uint8_t virtio_dev_status_get(struct virtio_dev *vdev)
+{
+	int rc = -ENOTSUP;
+	uint8_t status;
+
+	UK_ASSERT(vdev);
+
+	if (likely(vdev->cops->status_get)) {
+		status = vdev->cops->status_get(vdev);
+		return status;
+	}
+	return rc;
+}
+
 /**
  * The function to get the feature supported by the device.
  * @param vdev
@@ -227,7 +268,7 @@ static inline __u64 virtio_feature_get(struct virtio_dev *vdev)
  * @param feature
  *	A bit map of the feature negotiated.
  */
-static inline void virtio_feature_set(struct virtio_dev *vdev, __u32 feature)
+static inline void virtio_feature_set(struct virtio_dev *vdev, __u64 feature)
 {
 	UK_ASSERT(vdev);
 
@@ -264,6 +305,32 @@ static inline int virtio_config_get(struct virtio_dev *vdev, __u16 offset,
 	return rc;
 }
 
+static inline int virtio_modern_config_get(struct virtio_dev *vdev, __u8 offset,
+					   void *buf, __u8 type_len)
+{
+	int rc = -ENOTSUP;
+
+	UK_ASSERT(vdev);
+
+	if (likely(vdev->cops->modern_config_get))
+		rc = vdev->cops->modern_config_get(vdev, offset, buf, type_len);
+
+	return rc;
+}
+
+static inline int virtio_modern_config_set(struct virtio_dev *vdev, __u8 offset,
+					   const void *buf, __u8 type_len)
+{
+	int rc = -ENOTSUP;
+
+	UK_ASSERT(vdev);
+
+	if (likely(vdev->cops->modern_config_set))
+		rc = vdev->cops->modern_config_set(vdev, offset, buf, type_len);
+
+	return rc;
+}
+
 /**
  * The helper function to find the number of the vqs supported on the device.
  * @param vdev
@@ -289,6 +356,15 @@ static inline int virtio_find_vqs(struct virtio_dev *vdev, __u16 total_vqs,
 		rc = vdev->cops->vqs_find(vdev, total_vqs, vq_size);
 
 	return rc;
+}
+
+static inline void virtio_vqueue_enable(struct virtio_dev *vdev,
+					struct virtqueue *vq)
+{
+	UK_ASSERT(vdev);
+
+	if (likely(vdev->cops->vq_enable))
+		vdev->cops->vq_enable(vdev, vq);
 }
 
 /**

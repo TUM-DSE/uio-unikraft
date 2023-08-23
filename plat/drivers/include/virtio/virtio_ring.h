@@ -42,6 +42,7 @@
 
 #include <uk/arch/limits.h>
 #include <virtio/virtio_types.h>
+#include <virtio/virtqueue.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -82,8 +83,10 @@ extern "C" {
 #define VIRTIO_F_ANY_LAYOUT       27
 
 /**
- * Virtqueue descriptors: 16 bytes.
- * These can chain together via "next".
+ * Descriptor table entry.
+ * Descriptor chains are chained together via @p next
+ *
+ * (16 bytes).
  */
 struct vring_desc {
 	/* Address (guest-physical). */
@@ -92,18 +95,28 @@ struct vring_desc {
 	__virtio_le32 len;
 	/* The flags as indicated above. */
 	__virtio_le16 flags;
-	/* We chain unused descriptors via this, too */
+	/* Used, if this descriptor is a non-last element in a
+	   descriptor chain. Points to the next descriptor */
 	__virtio_le16 next;
 };
 
 struct vring_avail {
 	__virtio_le16 flags;
+	/* Next free entry in the available ring
+	 * where the driver would put the next
+	 * reference to a descriptor table entry, which describes a buffer,
+	 * available for processing by the host. */
 	__virtio_le16 idx;
+	/* Consequential list of indices of the descriptor table entries.
+	 * From host's perspective, new indices mean that the
+	 * referenced descriptor table entry (or chain of them) describes a
+	 * buffer (supplied by this guest) that the host can now process. */
 	__virtio_le16 ring[];
 	/* Only if VIRTIO_F_EVENT_IDX: __virtio_le16 used_event; */
 };
 
 /* __virtio_le32 is used here for ids for padding reasons. */
+/* Describes a descriptor chain that the host has written to */
 struct vring_used_elem {
 	/* Index of start of used descriptor chain. */
 	__virtio_le32 id;
@@ -113,7 +126,11 @@ struct vring_used_elem {
 
 struct vring_used {
 	__virtio_le16 flags;
+	/* Index of the next free used ring entry.
+	 * Updated by the host. */
 	__virtio_le16 idx;
+	/* Consequential list of indices of the descriptor table. They reference
+	 * buffers, which have been processed by the host */
 	struct vring_used_elem ring[];
 	/* Only if VIRTIO_F_EVENT_IDX: __virtio_le16 avail_event; */
 };
@@ -121,8 +138,12 @@ struct vring_used {
 struct vring {
 	unsigned int num;
 
+	/* Just an array of all descriptors */
 	struct vring_desc *desc;
+	/* Pointer to struct, which contains an array of
+	   available descriptors */
 	struct vring_avail *avail;
+	/* Pointer to struct, which contains an array */
 	struct vring_used *used;
 };
 
@@ -152,6 +173,33 @@ struct vring {
  * NOTE: for VirtIO PCI, align is 4096.
  */
 
+/* Buffer info */
+struct virtqueue_desc_info {
+	/* Cookie to identify driver buffer */
+	void *cookie;
+	/* # of descriptors in this buffer */
+	__u16 desc_count;
+};
+
+struct virtqueue_vring {
+	struct virtqueue vq;
+	/* Descriptor Ring */
+	struct vring vring;
+	/* Reference to the vring */
+	/* Memory address of the virtqueue */
+	void   *vring_mem;
+	/* Number of available descriptors. */
+	__u16 desc_avail;
+	/* Index of the next available entry in the descriptor table. */
+	__u16 head_free_desc;
+	/* Index of the last used descriptor by the host. */
+	__u16 last_used_desc_idx;
+	/* Holds information for each driver buffer. */
+	struct virtqueue_desc_info vq_info[];
+};
+
+#define to_virtqueue_vring(vq)			\
+	__containerof(vq, struct virtqueue_vring, vq)
 /**
  * We publish the used event index at the end of the available ring, and vice
  * versa. They are at the end for backwards compatibility.
@@ -159,6 +207,15 @@ struct vring {
 #define vring_used_event(vr) ((vr)->avail->ring[(vr)->num])
 #define vring_avail_event(vr) (*(__virtio16 *)&(vr)->used->ring[(vr)->num])
 
+/**
+ * @brief initialize pointers of the vring structure to the descriptor,
+ * available and used areas
+ *
+ * @param vr
+ * @param num
+ * @param p pointer to the virtqueue memory location
+ * @param align
+ */
 static inline void vring_init(struct vring *vr, unsigned int num, uint8_t *p,
 			      unsigned long align)
 {

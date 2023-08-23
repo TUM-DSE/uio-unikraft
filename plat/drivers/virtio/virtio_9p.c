@@ -70,6 +70,16 @@ struct virtio_9p_device {
 	__spinlock spinlock;
 };
 
+/*
+	In the list of initialized virtio 9p devices,
+	finds the device with `device_identifier` tag.
+	Saves the p9dev struct inside the 9p device, found in the list.
+	Saves the 9p device inside the p9dev.
+
+
+	p9dev is a structure, used inside unikraft to interface with
+	a 9P device. Defined in lib/uk9p
+*/
 static int virtio_9p_connect(struct uk_9pdev *p9dev,
 			     const char *device_identifier,
 			     const char *mount_args __unused)
@@ -77,6 +87,13 @@ static int virtio_9p_connect(struct uk_9pdev *p9dev,
 	struct virtio_9p_device *dev = NULL;
 	int rc = 0;
 	int found = 0;
+
+	/*
+	Look for dev with tag==device_identifier
+	virtio_9p_device_list is a list of uninitialized 9p devices.
+	`dev` with the needed tag is kept in the `dev` variable after
+	the loop.
+	 */
 
 	ukarch_spin_lock(&virtio_9p_device_list_lock);
 	uk_list_for_each_entry(dev, &virtio_9p_device_list, _list) {
@@ -113,6 +130,10 @@ out:
 	return rc;
 }
 
+/*
+	Removes p9dev from the 9p device, which it was connected to,
+	in the 9p-devices-list
+*/
 static int virtio_9p_disconnect(struct uk_9pdev *p9dev)
 {
 	struct virtio_9p_device *dev;
@@ -127,6 +148,13 @@ static int virtio_9p_disconnect(struct uk_9pdev *p9dev)
 	return 0;
 }
 
+/**
+ * @brief
+ *
+ * @param p9dev comes from the VFS
+ * @param req comes from the uk9p
+ * @return int
+ */
 static int virtio_9p_request(struct uk_9pdev *p9dev,
 			     struct uk_9preq *req)
 {
@@ -182,7 +210,7 @@ static int virtio_9p_request(struct uk_9pdev *p9dev,
 			goto out_unlock;
 		}
 
-		/* Make eure there is sufficient space for Rerror replies. */
+		/* Make sure there is sufficient space for Rerror replies. */
 		if (recv_size < UK_9P_RERROR_MAXSIZE) {
 			uint32_t leftover = UK_9P_RERROR_MAXSIZE - recv_size;
 
@@ -231,6 +259,13 @@ static struct uk_9pdev_trans v9p_trans = {
 	.a              = NULL /* Set by the driver initialization. */
 };
 
+/**
+ * @brief callback, passed to a virtqueue. Called on a virtqueue interrupt
+ *
+ * @param vq
+ * @param priv
+ * @return int
+ */
 static int virtio_9p_recv(struct virtqueue *vq, void *priv)
 {
 	struct virtio_9p_device *dev;
@@ -323,6 +358,7 @@ static int virtio_9p_vq_alloc(struct virtio_9p_device *d)
 		rc = PTR2ERR(d->vq);
 	}
 
+	/* will be passed to the virtio_9p_recv callback */
 	d->vq->priv = d;
 
 exit:
@@ -355,7 +391,6 @@ static int virtio_9p_feature_negotiate(struct virtio_9p_device *d)
 		rc = -ENOMEM;
 		goto out;
 	}
-
 
 	if (virtio_config_get(d->vdev,
 			  __offsetof(struct virtio_9p_config, tag),
@@ -452,6 +487,15 @@ out_free:
 	goto out;
 }
 
+/**
+ * @brief gets the memory allocator, sets it into the 9p transport struct
+ * and registers this 9p transport at the uk_9pdev_trans_list (list of
+ * transports in the lib/uk9p/9pdev_trans.c)
+ *
+ *
+ * @param drv_allocator
+ * @return int
+ */
 static int virtio_9p_drv_init(struct uk_alloc *drv_allocator)
 {
 	int rc = 0;

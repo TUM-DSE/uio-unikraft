@@ -387,6 +387,13 @@ static int virtio_pci_legacy_add_dev(struct pci_device *pci_dev,
 }
 
 
+/**
+ * @brief creates a virtio_pci_dev out of a pci_dev and registers it at the
+ * virtio_bus.c
+ *
+ * @param pci_dev
+ * @return int
+ */
 static int virtio_pci_add_dev(struct pci_device *pci_dev)
 {
 	struct virtio_pci_dev *vpci_dev = NULL;
@@ -403,6 +410,7 @@ static int virtio_pci_add_dev(struct pci_device *pci_dev)
 	/* Fetch PCI Device information */
 	vpci_dev->pdev = pci_dev;
 	vpci_dev->pci_base_addr = pci_dev->base;
+	vpci_dev->vdev.priv = vpci_dev;
 
 	/**
 	 * Probing for the legacy virtio device. We separate the legacy probing
@@ -439,15 +447,17 @@ static int virtio_pci_drv_init(struct uk_alloc *drv_allocator)
 	return 0;
 }
 
+// TODOFS: rename this file to virtio_pci_legacy.c
+/* TODOFS: specify the legacy ID range */
 static const struct pci_device_id virtio_pci_ids[] = {
 	{PCI_DEVICE_ID(VENDOR_QUMRANET_VIRTIO, PCI_ANY_ID)},
 	/* End of Driver List */
 	{PCI_ANY_DEVICE_ID},
 };
 
-static struct pci_driver virtio_pci_drv = {
+__unused static struct pci_driver virtio_pci_drv = {
 	.device_ids = virtio_pci_ids,
 	.init = virtio_pci_drv_init,
 	.add_dev = virtio_pci_add_dev
 };
-PCI_REGISTER_DRIVER(&virtio_pci_drv);
+// PCI_REGISTER_DRIVER(&virtio_pci_drv);

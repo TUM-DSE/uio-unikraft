@@ -164,11 +164,16 @@ config VIRTIO_CONSOLE
        default y if LIBUKCONSOLEDEV
        default n
        depends on LIBUKCONSOLEDEV
+       help
+              Virtio console driver.
+
+config VIRTIO_FS
+       bool "Virtio FS device"
        imply VIRTIO_PCI if ARCH_X86_64
        select VIRTIO_BUS
        select LIBUKSGLIST
        help
-              Virtio console driver.
+              Virtio FS driver.
 endmenu
 
 config RTC_PL031

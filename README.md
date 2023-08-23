@@ -1,135 +1,87 @@
-# [![Unikraft](http://unikraft.org/assets/imgs/unikraft-logo-small.png)][unikraft-website]
+# Virtiofs Implementation in Unikraft
+This is a fork of the [Unikraft](https://github.com/unikraft/unikraft) OS with an implemented kernel layer for the [virtiofs](https://virtio-fs.gitlab.io/) shared-file system.
 
-[![](https://img.shields.io/badge/version-v0.9.0%20(Hyperion)-%23EC591A)][unikraft-latest]
-[![](https://img.shields.io/static/v1?label=license&message=BSD-3&color=%23385177)][unikraft-license]
-[![](https://img.shields.io/discord/762976922531528725.svg?label=discord&logo=discord&logoColor=ffffff&color=7389D8&labelColor=6A7EC2)][unikraft-discord]
-[![](https://img.shields.io/github/contributors/unikraft/unikraft)](https://github.com/unikraft/unikraft/graphs/contributors)
+# Background (Virtiofs, Guest-Host File-Sharing)
+Virtiofs is a file-system technology that allows a guest to mount a file-system physically located on the host. The host also has parallel access to the file-system in parallel. Overall, virtiofs allows multiple guests and the host to securely share a single file-system, located on the host, with a parallel read-write access.
 
-***Unleash the Power of Unikernels!***
+This is an alternative to the remote file-sharing mechanism like NFS or SMTP that can be used by the guests and the host over a virtualized network. However, the virtiofs is more efficient in many ways. A significant one is the use of shared-memory for communication since the guests and the host run on a single machine.
 
-![](http://unikraft.org/assets/imgs/monkey-business.gif)
+A common use-case for the general guest-host file-sharing is **Development**. During development it is often useful to start the software in a dedicated virtual environment which can be a VM. Then the files have to be brought from the host into the VM. Additionally, some test and log data might need to get transfered between the environment VM and the development host.
 
-<img align="right" height="250" src="http://unikraft.org/assets/imgs/how-unikraft-works.svg" alt="How Unikraft works">
+# Implementation
+Here we describe the two main parts of work that we performed on Unikraft to enable the virtiofs support.
 
-Unikraft is an automated system for building specialized POSIX-compliant OSes known as [unikernels][unikernel-wikipedia]; these images are tailored to the needs of specific applications.  Unikraft is based around the concept of small, modular libraries, each providing a part of the functionality commonly found in an operating system (e.g., memory allocation, scheduling, filesystem support, network stack, etc.).
+### Virtiofs Kernel Layer
 
-Unikraft supports multiple target platforms (e.g., Xen, KVM, and Linux userspace) so that it is possible to build multiple images, one for each platform, for a single application *without* requiring the application developer to do any additional, platform-specific work. In all, Unikraft is able to build specialized OSes and unikernels targeted at specific applications without requiring the time-consuming, expert work that is required today to build such images.
-
-## Typical Use Cases
-
-Unikraft is a new system for ultra-light virtualization of your services in the cloud or at the edge, as well as extremely efficient software stacks to run bare metal on embedded devices. Smaller, quicker, and way more efficient than conventional systems:
-
-⚡ **Cold boot virtual machines in a fraction of a second**
-   While Linux-based systems might take tens of seconds to boot, Unikraft will be up in a blink.
-
-📈 **Deploy significantly more instances per physical machine**
-   Don’t waste CPU cycles on unneeded functionality – focus on your users' needs.
-
-📉 **Drastic reductions in memory consumption**
-   With all your applications and data strongly separated into ultra light-weight virtual machines, scaling becomes a breeze.
-
-🛡️ **Ready for mission critical deployments**
-   Focus your trust on a minimal set of required components, significantly reduce your service's attack surface, and minimize certification costs.
-
-🏎 **Outstanding performance**
-   Specializing the OS to meet your application's needs is the key to achieving superior performance, making you ready to drive your infrastructure to the peak.
-
-## Supported Architectures and Platforms
-
-Unikraft supports the construction of multiple architectures, platforms, and images. The following tables give an overview of the current support.
-
-### 💡 Architecture Support
-
-| Architecture         | Status                                         |
-|----------------------|------------------------------------------------|
-| x86                  | [`x86_64`][arch-x86_64]                        |
-| Arm                  | [`armv7`][arch-arm], [`aarch64`][arch-arm64]   |
-| RISC-V               | ⚙️ [Issue #60][i60]                            |
-
-### 💻 Platform Support
-
-| Platform                       | `x86_64`                                                                                                                                                                                                                                   | `arm32`             | `arm64`                                                                                                                                                                                                                                  |
-|--------------------------------|:------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------:|:-------------------:|:----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------:|
-| [Linux Userspace][plat-linuxu] | [![](https://builds.unikraft.io/api/v1/teams/unikraft/pipelines/unikraft-staging/jobs/compile-helloworld-x86_64-linuxu/badge)](https://builds.unikraft.io/teams/unikraft/pipelines/unikraft-staging/jobs/compile-helloworld-x86_64-linuxu) | ✅                  | [![](https://builds.unikraft.io/api/v1/teams/unikraft/pipelines/unikraft-staging/jobs/compile-helloworld-arm64-linuxu/badge)](https://builds.unikraft.io/teams/unikraft/pipelines/unikraft-staging/jobs/compile-helloworld-arm64-linuxu) |
-| [Linux KVM][plat-kvm]          | [![](https://builds.unikraft.io/api/v1/teams/unikraft/pipelines/unikraft-staging/jobs/compile-helloworld-x86_64-kvm/badge)](https://builds.unikraft.io/teams/unikraft/pipelines/unikraft-staging/jobs/compile-helloworld-x86_64-kvm)       | -                   | [![](https://builds.unikraft.io/api/v1/teams/unikraft/pipelines/unikraft-staging/jobs/compile-helloworld-arm64-kvm/badge)](https://builds.unikraft.io/teams/unikraft/pipelines/unikraft-staging/jobs/compile-helloworld-arm64-kvm)       |
-| [Xen Hypervisor][plat-xen]     | [![](https://builds.unikraft.io/api/v1/teams/unikraft/pipelines/unikraft-staging/jobs/compile-helloworld-x86_64-xen/badge)](https://builds.unikraft.io/teams/unikraft/pipelines/unikraft-staging/jobs/compile-helloworld-x86_64-xen)       | ⚙️ [Issue #34][i34] | ⚙️ [Issue #62][i62]                                                                                                                                                                                                                      |
-| [Solo5][plat-solo5]            | ✅                                                                                                                                                                                                                                         | -                   | ⚙️ [Issue #63][i63]                                                                                                                                                                                                                      |
-| VMWare                         | ⚙️ [Issue #3][i3]                                                                                                                                                                                                                          | -                   | -                                                                                                                                                                                                                                        |
-| Hyper-V                        | ⚙️ [Issue #61][i61]                                                                                                                                                                                                                        | -                   | -                                                                                                                                                                                                                                        |
+The architecture of the kernel layer is as follows:
+<br>
+<img src="https://user-images.githubusercontent.com/48807494/214492146-06c6f749-d3f3-499f-b375-eb0187907195.svg" width="700">
+<br>
+*Figure 1: red - components of the virtiofs kernel layer. Blue - components that existed previously.*
 
 
-### ☁️ IaaS Providers
+As part of the thesis the ``virtiofs driver`` (``plat/drivers/virtio/virtio_fs.c``) and the ``ukfuse`` (``lib/ukfuse/``) components have been implemented (see Figure 1).
 
-| Cloud Provider          | Images                                           |
-|-------------------------|:-------------------------------------------------|
-| Amazon Web Services     | [AMI][plat-aws], [Firecracker][plat-firecracker] |
-| Google Compute Platform | [GCP Image][plat-gcp]                            |
-| Digital Ocean           | [Droplet][plat-digitalocean]                     |
+> For a more in-depth explanation and analysis, see the thesis paper [here](https://drive.google.com/file/d/1453lly-Q2c3RjfbIDkTUd-Knvk4T6n8k/view?usp=share_link).
 
-## Getting Started
+### Virtiofs Subsystem Upgrade
 
-The fastest way to get started configuring, building and deploying Unikraft unikernels is to use our companion tool, [**kraft**][kraft].
+The second major part of the work has been an upgrade of the ``virtio subsystem`` (Figure 1) to support the modern virtio standard for PCI devices, which is what virtiofs is presented as by the hypervisor and seen by Unikraft.
 
-With kraft installed, you can download Unikraft components, configure your unikernel to your needs, build it and run it -- there's no need to be an expert!
+The architectural diagram for these changes is as follows:
+<br>
+<img src="https://user-images.githubusercontent.com/48807494/214496284-516653e7-06d6-411c-8d87-aa052194df7a.svg" width="700">
+<br>
+*Figure 2: red color denotes changes made to the 'virtio subsystem'.*
 
-## Contributing
+The ``virtio_pci_modern.c`` (``plat/drivers/virtio/virtio_pci_modern.c``) component has been added and is used instead of the legacy ``virtio_pci.c`` for modern virtio PCI devices. <br>
+Furthermore, additional functionality for scanning of PCI capability lists has been added to the ``pci_bus_x86.c`` (``plat/common/x86/pci_bus_x86.c``), in order to work with the modern virtio devices.
 
-Contributions are welcome!  Please see our [Contributing Guide][unikraft-contributing] for more details.
-A good starting point is the list of [open projects][github-projects].
-If one of these interests you or you are interested in finding out more information, please drop us a line via the [mailing list][dev-discuss-list] or directly at <dev-discuss@unikraft.org>.
+> For a more in-depth explanation and analysis, see the thesis paper [here](https://drive.google.com/file/d/1453lly-Q2c3RjfbIDkTUd-Knvk4T6n8k/view?usp=share_link).
 
-## Additional resources
+# Results (Performance Improvement)
+We have implemented a custom set of benchmarks ([here](https://github.com/astrynzha/unikraft_9p_measure) and in this repo at ``lib/benchmarks/``) for common file-system operations to evaluate the virtiofs performance. These operations are: sequential/random **read** and **write**; file **creation**, **deletion** and directory **listing**.
 
-* [Quick-start guide][unikraft-gettingstarted]
-* [What is a unikernel?][unikraft-concepts]
-* [Unikraft's inherent security benefits][unikraft-security]
-* [Performance of Unikraft][unikraft-performance]
-* [POSIX-compatibility with Unikraft][unikraft-posix-compatibility]
-* [Energy efficiency with Unikraft][Unikraft-green]
-* [Unikraft Community][unikraft-community]
-* [Unikraft Documentation][unikraft-docs]
+With these benchmarks, we have measured the speed of our virtiofs implementation and compared it against the 9pfs file-system (it is a virtiofs alternative that had previously been implemented in Unikraft) and the native Linux host (here, the file operations have been measured on the Linux host directly rather than from the guest through virtiofs/9pfs). Virtiofs has two ways of performing the read and write operations - 'FUSE' and 'DAX' (in the plots).
 
-## License
+The results are as follows.
 
-Unikraft is licensed under a BSD-3-Clause.  For more information, please refer to [`COPYING.md`][unikraft-license].
+Read:
+<br>
+<img src="https://user-images.githubusercontent.com/48807494/214696865-b30e1ba9-ae38-4c66-a57b-5735642121f3.svg" width="1000">
+<br>
+
+For reads and writes the 'buffer sizes' on the X axis is the amount of data we gave to each POSIX `read` or `write` request. The less data we give to each request, the larger the overall number of reqeusts. This drives down the performance because each request entails an expensive guest-host context switch.
+
+Write:
+<br>
+<img src="https://user-images.githubusercontent.com/48807494/214696892-61fa7252-8fd8-457d-96af-567861fbab51.svg" width="1000">
+<br>
 
 
-[unikraft-website]: https://unikraft.org
-[unikraft-docs]: https://unikraft.org/docs
-[unikraft-community]: https://unikraft.org/community
-[unikraft-contributing]: https://unikraft.org/docs/contributing/
-[unikraft-ci]: http://ci.unikraft.org
-[unikraft-license]: https://github.com/unikraft/unikraft/blob/staging/COPYING.md
-[unikraft-latest]: https://github.com/unikraft/unikraft/tree/RELEASE-0.9.0
-[unikraft-gettingstarted]: http://unikraft.org/docs/getting-started
-[unikraft-concepts]: https://unikraft.org/docs/concepts/
-[unikraft-posix-compatibility]: https://unikraft.org/docs/features/posix-compatibility
-[unikraft-performance]: https://unikraft.org/docs/features/performance/
-[unikraft-security]: https://unikraft.org/docs/features/security/
-[unikraft-green]: https://unikraft.org/docs/features/green/
-[unikraft-discord]: https://bit.ly/UnikraftDiscord
-[kraft]: https://github.com/unikraft/kraft/
-[github-issues]: https://github.com/unikraft/unikraft/issues
-[github-projects]: https://github.com/unikraft/unikraft/labels/kind/project
-[dockerhub-kraft]: https://hub.docker.com/r/unikraft/kraft
-[dev-discuss-list]: https://groups.google.com/a/unikraft.org/g/user-discuss
-[unikernel-wikipedia]: https://en.wikipedia.org/wiki/Unikernel
-[arch-x86_64]: https://github.com/unikraft/unikraft/tree/staging/arch/x86/x86_64
-[arch-arm]: https://github.com/unikraft/unikraft/tree/staging/arch/arm/arm
-[arch-arm64]: https://github.com/unikraft/unikraft/tree/staging/arch/arm/arm64
-[plat-linuxu]: https://github.com/unikraft/unikraft/tree/staging/plat/linuxu
-[plat-kvm]: https://github.com/unikraft/unikraft/tree/staging/plat/kvm
-[plat-xen]: https://github.com/unikraft/unikraft/tree/staging/plat/xen
-[plat-solo5]: https://github.com/unikraft/plat-solo5
-[plat-raspi]: https://github.com/unikraft/plat-raspi
-[plat-gcp]: https://github.com/unikraft/plat-gcp
-[plat-aws]: https://github.com/unikraft/plat-aws
-[plat-digitalocean]: https://github.com/unikraft/plat-digitalocean
-[plat-firecracker]: https://github.com/unikraft/plat-firecracker
-[i3]: https://github.com/unikraft/unikraft/issues/3
-[i34]: https://github.com/unikraft/unikraft/issues/34
-[i60]: https://github.com/unikraft/unikraft/issues/60
-[i61]: https://github.com/unikraft/unikraft/issues/61
-[i62]: https://github.com/unikraft/unikraft/issues/62
-[i63]: https://github.com/unikraft/unikraft/issues/63
+Create/Remove/List:
+<br>
+<img src="https://user-images.githubusercontent.com/48807494/214696909-e5042053-a91f-4559-9bd8-724c822788f0.svg" width="1000">
+<br>
 
+
+#### The main takeaways are:
+- Virtiofs through DAX is significantly faster than 9pfs for buffer sizes < 128 KiB.
+  - For example, with 4 KiB buffers virtiofs is faster than 9pfs
+    - ~17 times for sequential reads (from 73 MiB/s to 1287 MiB/s).
+    - ~106 times for sequential writes (from 12 MiB/s to 947 MiB/s).
+- Virtiofs with DAX is faster than the native Linux for smaller buffers
+  - This is only due to the fact that the guest is a unikernel, where system calls (fs operations) have less overhead than in a conventional OS like the host's Linux.
+- 9pfs is to prefer for:
+  - removing operations.
+  - reading with buffers > 128 KiB.
+- In all other cases virtiofs provides better performance.
+
+> For a more in-depth analysis and discussion of the result, see the thesis paper [here](https://drive.google.com/file/d/1453lly-Q2c3RjfbIDkTUd-Knvk4T6n8k/view?usp=share_link).
+___
+### Resources
+- [Thesis Paper](https://drive.google.com/file/d/1453lly-Q2c3RjfbIDkTUd-Knvk4T6n8k/view?usp=share_link)
+- [Custom Benchmarks Used to Measure the Results](https://github.com/astrynzha/unikraft_9p_measure)
+- [Unikraft Github Repo](https://github.com/unikraft/unikraft)
+- [Unikraft Official Website](https://unikraft.io/)
+- [Virtiofs Official Website](https://virtio-fs.gitlab.io/)

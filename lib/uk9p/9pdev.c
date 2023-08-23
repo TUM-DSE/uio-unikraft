@@ -172,6 +172,7 @@ static uint16_t _req_mgmt_next_tag_locked(struct uk_9pdev_req_mgmt *req_mgmt)
 	return uk_find_next_zero_bit(req_mgmt->tag_bm, UK_9P_NUMTAGS, 0);
 }
 
+/* TODO: remove __unused? */
 static void _req_mgmt_cleanup(struct uk_9pdev_req_mgmt *req_mgmt __unused)
 {
 	unsigned long flags;
@@ -220,7 +221,7 @@ struct uk_9pdev *uk_9pdev_connect(const struct uk_9pdev_trans *trans,
 
 	dev = uk_calloc(a, 1, sizeof(*dev));
 	if (dev == NULL) {
-		rc = -ENOMEM;
+	rc = -ENOMEM;
 		goto out;
 	}
 

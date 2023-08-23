@@ -45,29 +45,6 @@
 #include <virtio/virtqueue.h>
 
 #define VIRTQUEUE_MAX_SIZE  32768
-#define to_virtqueue_vring(vq)			\
-	__containerof(vq, struct virtqueue_vring, vq)
-
-struct virtqueue_desc_info {
-	void *cookie;
-	__u16 desc_count;
-};
-
-struct virtqueue_vring {
-	struct virtqueue vq;
-	/* Descriptor Ring */
-	struct vring vring;
-	/* Reference to the vring */
-	void   *vring_mem;
-	/* Keep track of available descriptors */
-	__u16 desc_avail;
-	/* Index of the next available slot */
-	__u16 head_free_desc;
-	/* Index of the last used descriptor by the host */
-	__u16 last_used_desc_idx;
-	/* Cookie to identify driver buffer */
-	struct virtqueue_desc_info vq_info[];
-};
 
 /**
  * Static function Declaration(s).
@@ -137,6 +114,14 @@ int virtqueue_intr_enable(struct virtqueue *vq)
 	return rc;
 }
 
+/**
+ * @brief put the @p idx on the available area
+ *
+ * put the @p idx on the next available area entry
+ *
+ * @param vrq
+ * @param idx
+ */
 static inline void virtqueue_ring_update_avail(struct virtqueue_vring *vrq,
 					__u16 idx)
 {
@@ -153,6 +138,12 @@ static inline void virtqueue_ring_update_avail(struct virtqueue_vring *vrq,
 	vrq->vring.avail->idx++;
 }
 
+/**
+ * @brief detach descriptor chain from a VQ.
+ *
+ * @param vrq
+ * @param head_idx index of the descriptor chain head
+ */
 static inline void virtqueue_detach_desc(struct virtqueue_vring *vrq,
 					__u16 head_idx)
 {
@@ -164,6 +155,8 @@ static inline void virtqueue_detach_desc(struct virtqueue_vring *vrq,
 	vrq->desc_avail += vq_info->desc_count;
 	vq_info->desc_count--;
 
+	/* Iterate until the last descriptor in the descriptor chain,
+	   decrementing the desc_count on each iteration */
 	while (desc->flags & VRING_DESC_F_NEXT) {
 		desc = &vrq->vring.desc[desc->next];
 		vq_info->desc_count--;
@@ -172,7 +165,8 @@ static inline void virtqueue_detach_desc(struct virtqueue_vring *vrq,
 	/* The value should be empty */
 	UK_ASSERT(vq_info->desc_count == 0);
 
-	/* Appending the descriptor to the head of list */
+	/* Appending the now freed descriptor chain to the head of the list */
+	/* new h_f_d ---> this desc. chain ---> old h_f_d */
 	desc->next = vrq->head_free_desc;
 	vrq->head_free_desc = head_idx;
 }
@@ -187,6 +181,19 @@ int virtqueue_notify_enabled(struct virtqueue *vq)
 	return ((vrq->vring.used->flags & VRING_USED_F_NO_NOTIFY) == 0);
 }
 
+/**
+ * @brief
+ * Place # @p read_bufs read buffers and # @p write_bufs onto the descriptor
+ * area
+ *
+ * @param vrq
+ * @param head descriptor chain head, where we place the segments
+ * @param sg
+ * @param read_bufs number of read buffers
+ * @param write_bufs number of write buffers
+ * @return int index of the next free buffer that comes after the ones we
+ * enqueued
+ */
 static inline int virtqueue_buffer_enqueue_segments(
 		struct virtqueue_vring *vrq,
 		__u16 head, struct uk_sglist *sg, __u16 read_bufs,
@@ -305,6 +312,8 @@ int virtqueue_buffer_dequeue(struct virtqueue *vq, void **cookie, __u32 *len)
 	/* No new descriptor since last dequeue operation */
 	if (!virtqueue_hasdata(vq))
 		return -ENOMSG;
+	/* Process just one reply (one used descriptor chain corresponds to one
+	   reply) */
 	used_idx = vrq->last_used_desc_idx++ & (vrq->vring.num - 1);
 	elem = &vrq->vring.used->ring[used_idx];
 	/**
@@ -321,6 +330,16 @@ int virtqueue_buffer_dequeue(struct virtqueue *vq, void **cookie, __u32 *len)
 	return (vrq->vring.num - vrq->desc_avail);
 }
 
+/**
+ * @brief
+ *
+ * @param vq
+ * @param cookie is passed back through the virtqueue_buffer_dequeue call
+ * @param sg
+ * @param read_bufs
+ * @param write_bufs
+ * @return int -ENOSPC, if not enough descriptors are available
+ */
 int virtqueue_buffer_enqueue(struct virtqueue *vq, void *cookie,
 			     struct uk_sglist *sg, __u16 read_bufs,
 			     __u16 write_bufs)
@@ -384,6 +403,18 @@ static void virtqueue_vring_init(struct virtqueue_vring *vrq, __u16 nr_desc,
 	vrq->vring.desc[nr_desc - 1].next = VIRTQUEUE_MAX_SIZE;
 }
 
+/**
+ * @brief
+ *
+ * @param queue_id hw queue identifier
+ * @param nr_descs queue size
+ * @param align
+ * @param callback
+ * @param notify
+ * @param vdev
+ * @param a memory allocator
+ * @return struct virtqueue*
+ */
 struct virtqueue *virtqueue_create(__u16 queue_id, __u16 nr_descs, __u16 align,
 				   virtqueue_callback_t callback,
 				   virtqueue_notify_host_t notify,
@@ -410,6 +441,10 @@ struct virtqueue *virtqueue_create(__u16 queue_id, __u16 nr_descs, __u16 align,
 	 */
 	vrq->vring_mem = NULL;
 
+	/* Allocate and zero Descriptor Table, Available and Used rings for
+	 * the virtqueue in contiguous physical
+	 * memory.
+	 */
 	ring_size = vring_size(nr_descs, align);
 	if (uk_posix_memalign(a, &vrq->vring_mem,
 			      __PAGE_SIZE, ring_size) != 0) {
