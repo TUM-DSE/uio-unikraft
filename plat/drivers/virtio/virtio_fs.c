@@ -58,7 +58,11 @@
 #include <uk/fusereq.h>
 #include <stdbool.h>
 #include <uk/vf_vnops.h>
+#include <uk/config.h>
+
+#ifdef CONFIG_LIBBENCHMARKS
 #include <uk/bench_tests.h>
+#endif
 /* TODOFS: remove */
 
 
@@ -564,7 +568,9 @@ static int virtio_fs_add_dev(struct virtio_dev *vdev)
 	add_vdev_for_dax(vdev);
 	// test_method_1();
 	// vf_test_method();
+#ifdef CONFIG_LIBBENCHMARKS
 	bench_test();
+#endif
 out:
 	return rc;
 out_free:
