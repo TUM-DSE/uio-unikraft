@@ -3,3 +3,4 @@ config LIBBENCHMARKS
 	default n
 	depends on LIBUKFUSE
 	depends on LIBVIRTIOFS
+	select LIBUKDEBUG if !HAVE_RANDOM
