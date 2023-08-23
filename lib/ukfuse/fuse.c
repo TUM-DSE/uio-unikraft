@@ -92,6 +92,9 @@
 /* TODOFS: remove */
 #include <uk/vf_vnops.h>
 
+#ifndef O_LARGEFILE
+#define O_LARGEFILE 0400000
+#endif
 
 /**
  * @brief returns @p base to the power of @p exp

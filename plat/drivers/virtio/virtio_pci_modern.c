@@ -88,6 +88,10 @@
 #include <virtio/virtio_pci_modern.h>
 #include <pci/pci_bus.h>
 
+#ifndef ENOATTR
+#define ENOATTR          87 /* Attribute not found */
+#endif
+
 static struct uk_alloc *a;
 
 /**
