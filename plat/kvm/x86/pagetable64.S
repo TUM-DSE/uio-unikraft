@@ -134,8 +134,10 @@ x86_bpt_pd0_0: /* 2M pages */
 .align 0x1000
 x86_bpt_pdpt0: /* 1G pages */
 	pte	 x86_bpt_pd0_0, PTE_RW
-	pte_zero , 0x1ff
+	/* pte_zero , 0x1ff */
 	/* pte_fill 0x0000000040000000, 0x1ff, PDPT_LVL, PTE_RW */
+	pte_fill 0x0000000040000000, 0x4, PDPT_LVL, PTE_RW
+	pte_zero , 0x1fb
 
 /* Page table for 512 GiB direct-mapped physical memory
  * 0xffffff8000000000 - 0xffffffffffffffff
