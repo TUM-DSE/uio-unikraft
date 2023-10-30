@@ -397,20 +397,20 @@ static int ushell_process_cmd(int argc, char *argv[], int ushell_mounted)
 		}
 		unikraft_call_wrapper(ushell_puts, buf);
 
-	} else if (!strcmp(cmd, "ushell-mount-info")) {
+	} else if (!strcmp(cmd, "mount-info")) {
 		ushell_puts("mount-info=");
 		ushell_puts(fsdev);
 		ushell_puts(":");
 		ushell_puts(ushellMountPoint);
 		ushell_puts("\n");
-	} else if (!strcmp(cmd, "ushell-bpf-helper-info")) {
+	} else if (!strcmp(cmd, "bpf-helper-info")) {
 
-        void *init_builtin_bpf_helpers();
+        void *init_bpf_helpers();
         void print_helper_specs(void (*print_fn)(const char *));
         void print_prog_type_infos(void (*print_fn)(const char *));
 
 #ifdef CONFIG_LIBUSHELL_BPF
-        unikraft_call_wrapper(init_builtin_bpf_helpers);
+        unikraft_call_wrapper(init_bpf_helpers);
 #endif
 		ushell_puts("bpf-helper-info=");
         print_helper_specs(ushell_puts);
@@ -451,7 +451,7 @@ static int ushell_process_cmd(int argc, char *argv[], int ushell_mounted)
 			}
 
 			unikraft_call_wrapper_ret(initBpfVM, bpf_exec, argv[1],
-						  argv[2], argv[3], strlen(argv[2]) + 1,
+						  argv[2], argv[3], strlen(argv[3]) + 1,
 						  debug, ushell_puts);
 		} else if (argc >= 3) {
 			unikraft_call_wrapper_ret(initBpfVM, bpf_exec, argv[1], argv[2],
@@ -510,15 +510,16 @@ static int ushell_process_cmd(int argc, char *argv[], int ushell_mounted)
 		snprintf(buf, sizeof(buf), "Time: %llu\n", ns);
 		ushell_puts(buf);
 	} else if (!strcmp(cmd, "bpf_attach")) {
-		int bpf_attach(const char *function_name,
-			       const char *bpf_filename,
-			       void (*print_fn)(char *str));
-		if (argc >= 3) {
-			unikraft_call_wrapper(bpf_attach, argv[1], argv[2],
-					      ushell_puts);
+		int bpf_attach(const char *function_name, 
+               const char *bpf_filename, const char* bpf_tracer_function_name,
+               void (*print_fn)(char *str));
+
+		if (argc >= 4) {
+			unikraft_call_wrapper(bpf_attach, argv[1], argv[2], argv[3], ushell_puts);
+		} if (argc >= 3) {
+			unikraft_call_wrapper(bpf_attach, argv[1], argv[2], "bpf_tracer", ushell_puts);
 		} else {
-			ushell_puts("Usage: bpf_attach <function_name> "
-				    "<bpf_filename>\n");
+			ushell_puts("Usage: bpf_attach <function_name> <bpf_filename> <bpf_tracer_function_name>=bpf_tracer\n");
 		}
 	} else if (!strcmp(cmd, "bpf_list")) {
 		int bpf_list(const char *function_name,
@@ -534,21 +535,13 @@ static int ushell_process_cmd(int argc, char *argv[], int ushell_mounted)
 			unikraft_call_wrapper(bpf_list, NULL, ushell_puts);
 		}
 	} else if (!strcmp(cmd, "bpf_detach")) {
-		int bpf_detach(const char *function_name,
-			       const char *bpf_filename,
-			       void (*print_fn)(char *str));
-		if (argc >= 3) {
-			for (int i = 2; i < argc; i++) {
-				unikraft_call_wrapper(bpf_detach, argv[1],
-						      argv[i], ushell_puts);
-			}
-		} else if (argc >= 2) {
-			unikraft_call_wrapper(bpf_detach, argv[1], NULL,
-					      ushell_puts);
+		int bpf_detach(const char *function_name, void (*print_fn)(char *str));
+
+		if (argc >= 2) {
+			unikraft_call_wrapper(bpf_detach, argv[1], ushell_puts);
 
 		} else {
-			ushell_puts("Usage: bpf_detach <function_name> "
-				    "[<bpf_filename> ...]\n");
+			ushell_puts("Usage: bpf_detach <function_name>\n");
 		}
 	} else if (!strcmp(cmd, "bpf_map_get")) {
 		if (argc >= 2) {
