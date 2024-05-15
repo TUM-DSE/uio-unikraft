@@ -243,9 +243,6 @@ else
 export UK_FULLVERSION := $(UK_VERSION).$(UK_SUBVERSION)$(shell cd $(CONFIG_UK_BASE); $(SCRIPTS_DIR)/gitsha1)
 endif
 
-# Default image name
-export CONFIG_UK_NAME ?= $(notdir $(APP_DIR))
-
 export DATE := $(shell date +%Y%m%d)
 
 # Makefile targets
@@ -351,8 +348,17 @@ UK_HAVE_DOT_CONFIG := y
 endif
 endif
 
+# parameter N: UK_NAME ###
+# # Use N variable if set on the command line, otherwise use directory name
+ifeq ("$(origin N)", "command line")
+CONFIG_UK_NAME := $(N)
+else
+CONFIG_UK_NAME ?= $(notdir $(APP_DIR))
+endif
+
 # remove quotes from CONFIG_UK_NAME
 CONFIG_UK_NAME := $(call qstrip,$(CONFIG_UK_NAME))
+export CONFIG_UK_NAME
 
 ################################################################################
 # Host compiler and linker tools
@@ -600,6 +606,7 @@ PATCH		:= patch
 GZIP		:= gzip
 TAR		:= tar
 UNZIP		:= unzip -qq -u
+GIT		:= git
 WGET		:= wget
 SHA1SUM		:= sha1sum -b
 SHA256SUM	:= sha256sum -b
@@ -1063,6 +1070,8 @@ help:
 	@echo '  C=[PATH]               - path to .config configuration file'
 	@echo '  O=[PATH]               - path to build output (will be created if it does not exist)'
 	@echo '  A=[PATH]               - path to Unikraft application'
+	@echo '  N=[NAME]               - use NAME as image name instead the one found in the configuration'
+	@echo '                           (note: the name in the configuration file is not overwritten)'
 	@echo '  L=[PATH]:[PATH]:..     - colon-separated list of paths to external libraries'
 	@echo '  P=[PATH]:[PATH]:..     - colon-separated list of paths to external platforms'
 	@echo ''
@@ -1076,3 +1085,9 @@ help:
 	@echo ''
 
 endif #umask
+
+# This is used to detect if a makefile macro expansion is immediate or deferred.
+# As the last statement in the main makefile, this is read in the end of the
+# immediate expansion phase. Therefore, UK_DEFERRED_EXPANSION is expanded to a
+# empty string in immediate expansion and to 'y' in a deferred expansion.
+UK_DEFERRED_EXPANSION := y

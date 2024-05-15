@@ -184,15 +184,13 @@ UK_LLSYSCALL_R_DEFINE(int, openat, int, dirfd, const char *, pathname,
 		      int, flags, int, mode)
 {
 	if (pathname[0] == '/' || dirfd == AT_FDCWD) {
-		return uk_syscall_e_open((long int)pathname, flags, mode);
+		return uk_syscall_r_open((long int)pathname, flags, mode);
 	}
 
 	struct vfscore_file *fp;
 	int error = fget(dirfd, &fp);
-	if (error) {
-		errno = error;
-		return -1;
-	}
+	if (error)
+		return -error;
 
 	struct vnode *vp = fp->f_dentry->d_vnode;
 	vn_lock(vp);
@@ -205,12 +203,12 @@ UK_LLSYSCALL_R_DEFINE(int, openat, int, dirfd, const char *, pathname,
 	strlcat(p, "/", PATH_MAX);
 	strlcat(p, pathname, PATH_MAX);
 
-	error = uk_syscall_e_open((long int)p, flags, mode);
+	error = uk_syscall_r_open((long int)p, flags, mode);
 
 	vn_unlock(vp);
 	fdrop(fp);
 
-	return -error;
+	return error;
 }
 
 #if UK_LIBC_SYSCALLS
@@ -575,6 +573,7 @@ static int do_pwritev(struct vfscore_file *fp, const struct iovec *iov,
 	return 0;
 
 out_error:
+	*bytes = -1;
 	return -error;
 }
 
@@ -881,44 +880,7 @@ UK_SYSCALL_DEFINE(int, fstat, int, fd, struct stat *, st)
 LFS64(fstat);
 
 static int __fxstatat_helper(int ver __unused, int dirfd, const char *pathname,
-		struct stat *st, int flags)
-{
-	if (pathname[0] == '/' || dirfd == AT_FDCWD) {
-		return stat(pathname, st);
-	}
-	// If AT_EMPTY_PATH and pathname is an empty string, fstatat() operates on
-	// dirfd itself, and in that case it doesn't have to be a directory.
-	if ((flags & AT_EMPTY_PATH) && !pathname[0]) {
-		return fstat(dirfd, st);
-	}
-
-	struct vfscore_file *fp;
-	int error = fget(dirfd, &fp);
-	if (error) {
-		errno = error;
-		return -1;
-	}
-
-	struct vnode *vp = fp->f_dentry->d_vnode;
-	vn_lock(vp);
-
-	char p[PATH_MAX];
-	/* build absolute path */
-	strlcpy(p, fp->f_dentry->d_mount->m_path, PATH_MAX);
-	strlcat(p, fp->f_dentry->d_path, PATH_MAX);
-	strlcat(p, "/", PATH_MAX);
-	strlcat(p, pathname, PATH_MAX);
-
-	if (flags & AT_SYMLINK_NOFOLLOW)
-		error = lstat(p, st);
-	else
-		error = stat(p, st);
-
-	vn_unlock(vp);
-	fdrop(fp);
-
-	return error;
-}
+		struct stat *st, int flags);
 
 #if UK_LIBC_SYSCALLS
 int __fxstatat(int ver __unused, int dirfd, const char *pathname,
@@ -1124,7 +1086,7 @@ UK_SYSCALL_R_DEFINE(int, getdents, int, fd, struct dirent*, dirp,
 	struct dirent entry, *result;
 	int error;
 
-	do {
+	while ((i + 1) * sizeof(struct dirent) <= count) {
 		error = readdir_r(&dir, &entry, &result);
 		if (error) {
 			trace_vfs_getdents_err(error);
@@ -1140,9 +1102,47 @@ UK_SYSCALL_R_DEFINE(int, getdents, int, fd, struct dirent*, dirp,
 		} else
 			break;
 
-	} while (i < count);
+	}
 
 	return (i * sizeof(struct dirent));
+}
+
+UK_TRACEPOINT(trace_vfs_getdents64, "%d %p %hu", int, struct dirent64 *, size_t);
+UK_TRACEPOINT(trace_vfs_getdents64_ret, "");
+UK_TRACEPOINT(trace_vfs_getdents64_err, "%d", int);
+
+UK_SYSCALL_R_DEFINE(int, getdents64, int, fd, struct dirent64 *, dirp,
+					size_t, count) {
+	trace_vfs_getdents64(fd, dirp, count);
+	if (dirp == NULL || count == 0)
+		return 0;
+
+	DIR dir = {
+		.fd = fd
+	};
+
+	size_t i = 0;
+	struct dirent64 entry, *result;
+	int error;
+
+	while (((i + 1) * sizeof(struct dirent64)) < count) {
+		error = readdir64_r(&dir, &entry, &result);
+		if (error) {
+			trace_vfs_getdents64_err(error);
+			return -error;
+
+		} else
+			trace_vfs_getdents64_ret();
+
+		if (result != NULL) {
+			memcpy(dirp + i, result, sizeof(struct dirent64));
+			i++;
+
+		} else
+			break;
+	}
+
+	return (i * sizeof(struct dirent64));
 }
 
 struct dirent *readdir(DIR *dir)
@@ -1636,11 +1636,51 @@ int __lxstat(int ver __unused, const char *pathname, struct stat *st)
 #endif
 
 LFS64(__lxstat);
+#else
+int __lxstat(int ver, const char *pathname, struct stat *st);
 #endif /* UK_LIBC_SYSCALLS */
 
 UK_SYSCALL_R_DEFINE(int, lstat, const char*, pathname, struct stat*, st)
 {
 	return __lxstat(1, pathname, st);
+}
+
+static int __fxstatat_helper(int ver __unused, int dirfd, const char *pathname,
+		struct stat *st, int flags)
+{
+	if (pathname[0] == '/' || dirfd == AT_FDCWD) {
+		return uk_syscall_r_stat((long) pathname, (long) st);
+	}
+	// If AT_EMPTY_PATH and pathname is an empty string, fstatat() operates on
+	// dirfd itself, and in that case it doesn't have to be a directory.
+	if ((flags & AT_EMPTY_PATH) && !pathname[0]) {
+		return uk_syscall_r_fstat((long) dirfd, (long) st);
+	}
+
+	struct vfscore_file *fp;
+	int error = fget(dirfd, &fp);
+	if (error)
+		return -error;
+
+	struct vnode *vp = fp->f_dentry->d_vnode;
+	vn_lock(vp);
+
+	char p[PATH_MAX];
+	/* build absolute path */
+	strlcpy(p, fp->f_dentry->d_mount->m_path, PATH_MAX);
+	strlcat(p, fp->f_dentry->d_path, PATH_MAX);
+	strlcat(p, "/", PATH_MAX);
+	strlcat(p, pathname, PATH_MAX);
+
+	if (flags & AT_SYMLINK_NOFOLLOW)
+		error = uk_syscall_r_lstat((long) p, (long) st);
+	else
+		error = uk_syscall_r_stat((long) p, (long) st);
+
+	vn_unlock(vp);
+	fdrop(fp);
+
+	return error;
 }
 
 #ifdef lstat64
@@ -1724,6 +1764,7 @@ UK_SYSCALL_R_DEFINE(int, fstatfs, int, fd, struct statfs*, buf)
 
 LFS64(fstatfs);
 
+#if UK_LIBC_SYSCALLS
 static int
 statfs_to_statvfs(struct statvfs *dst, struct statfs *src)
 {
@@ -1741,7 +1782,6 @@ statfs_to_statvfs(struct statvfs *dst, struct statfs *src)
 	return 0;
 }
 
-#if UK_LIBC_SYSCALLS
 int
 statvfs(const char *pathname, struct statvfs *buf)
 {
@@ -1757,9 +1797,7 @@ statvfs(const char *pathname, struct statvfs *buf)
 #endif
 
 LFS64(statvfs);
-#endif /* UK_LIBC_SYSCALLS */
 
-#if UK_LIBC_SYSCALLS
 int
 fstatvfs(int fd, struct statvfs *buf)
 {
@@ -2076,7 +2114,7 @@ UK_SYSCALL_R_DEFINE(int, faccessat, int, dirfd, const char*, pathname, int, mode
 	}
 
 	if (pathname[0] == '/' || dirfd == AT_FDCWD) {
-		return access(pathname, mode);
+		return uk_syscall_r_access((long) pathname, (long) mode);
 	}
 
 	struct vfscore_file *fp;
@@ -2096,7 +2134,7 @@ UK_SYSCALL_R_DEFINE(int, faccessat, int, dirfd, const char*, pathname, int, mode
 	strlcat(p, "/", PATH_MAX);
 	strlcat(p, pathname, PATH_MAX);
 
-	error = access(p, mode);
+	error = uk_syscall_r_access((long) p, (long) mode);
 
 	vn_unlock(vp);
 	fdrop(fp);
@@ -2107,7 +2145,7 @@ UK_SYSCALL_R_DEFINE(int, faccessat, int, dirfd, const char*, pathname, int, mode
 
 int euidaccess(const char *pathname, int mode)
 {
-	return access(pathname, mode);
+	return uk_syscall_r_access((long) pathname, (long) mode);
 }
 
 __weak_alias(euidaccess,eaccess);

@@ -87,4 +87,9 @@ psignal
 _nolibc_ctype
 
 # errno
-_nolibc_errno
+errno
+
+# network
+htons
+nthos
+h_errno

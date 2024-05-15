@@ -47,6 +47,8 @@
 #define MAIR_NORMAL_NC		0x44
 /* Outer + Inner Write-back non-transient */
 #define MAIR_NORMAL_WB		0xff
+/* Tagged Outer + Inner Write-back non-transient */
+#define	MAIR_NORMAL_WB_TAGGED	0xf0
 /* Outer + Inner Write-through non-transient */
 #define MAIR_NORMAL_WT		0xbb
 
@@ -60,8 +62,13 @@
 #define PTE_ATTR_DEVICE_nGnRnE					\
 	(PTE_ATTR_DEFAULT | PTE_ATTR_XN | PTE_ATTR_IDX(DEVICE_nGnRnE))
 
+#ifdef CONFIG_ARM64_FEAT_MTE
+#define PTE_ATTR_NORMAL_RW					\
+	(PTE_ATTR_DEFAULT | PTE_ATTR_XN | PTE_ATTR_IDX(NORMAL_WB_TAGGED))
+#else
 #define PTE_ATTR_NORMAL_RW					\
 	(PTE_ATTR_DEFAULT | PTE_ATTR_XN | PTE_ATTR_IDX(NORMAL_WB))
+#endif /* CONFIG_ARM64_FEAT_MTE */
 
 #define PTE_ATTR_NORMAL_RO					\
 	(PTE_ATTR_DEFAULT | PTE_ATTR_XN |			\
@@ -139,6 +146,7 @@
 #define NORMAL_NC		3
 #define NORMAL_WT		4
 #define NORMAL_WB		5
+#define NORMAL_WB_TAGGED	6
 
 #define MAIR_INIT_ATTR						\
 	(MAIR_EL1_ATTR(MAIR_DEVICE_nGnRnE, DEVICE_nGnRnE) |	\
@@ -146,7 +154,8 @@
 	 MAIR_EL1_ATTR(MAIR_DEVICE_GRE, DEVICE_GRE) |		\
 	 MAIR_EL1_ATTR(MAIR_NORMAL_NC, NORMAL_NC) |		\
 	 MAIR_EL1_ATTR(MAIR_NORMAL_WT, NORMAL_WT) |		\
-	 MAIR_EL1_ATTR(MAIR_NORMAL_WB, NORMAL_WB))
+	 MAIR_EL1_ATTR(MAIR_NORMAL_WB, NORMAL_WB) |		\
+	 MAIR_EL1_ATTR(MAIR_NORMAL_WB_TAGGED, NORMAL_WB_TAGGED))
 
 /* Mapping of TCR_EL1.IPS to number of bits */
 #ifdef __ASSEMBLY__
@@ -263,6 +272,95 @@ struct __callee_saved_regs {
 #ifndef wmb
 #define wmb()   dsb(st) /* Full system memory barrier store */
 #endif
+
+/* Macros to access system registers */
+#define SYSREG_READ(reg)					\
+({	uint64_t val;						\
+	__asm__ __volatile__("mrs %0, " __STRINGIFY(reg)	\
+			: "=r" (val));				\
+	val;							\
+})
+
+#define SYSREG_WRITE(reg, val)					\
+({	__asm__ __volatile__("msr " __STRINGIFY(reg) ", %0"	\
+			: : "r" ((uint64_t)(val)));		\
+})
+
+#define SYSREG_READ32(reg)					\
+({	uint32_t val;						\
+	__asm__ __volatile__("mrs %0, " __STRINGIFY(reg)	\
+			: "=r" (val));				\
+	val;							\
+})
+
+#define SYSREG_WRITE32(reg, val)				\
+({	__asm__ __volatile__("msr " __STRINGIFY(reg) ", %0"	\
+			: : "r" ((uint32_t)(val)));		\
+})
+
+#define SYSREG_READ64(reg)			SYSREG_READ(reg)
+#define SYSREG_WRITE64(reg, val)		SYSREG_WRITE(reg, val)
+
+/*
+ * we should use inline assembly with volatile constraint to access mmio
+ * device memory to avoid compiler use load/store instructions of writeback
+ * addressing mode which will cause crash when running in hyper mode
+ * unless they will be decoded by hypervisor.
+ */
+static inline uint8_t ioreg_read8(const volatile uint8_t *address)
+{
+	uint8_t value;
+
+	__asm__ __volatile__("ldrb %w0, [%1]" : "=r"(value) : "r"(address));
+	return value;
+}
+
+static inline uint16_t ioreg_read16(const volatile uint16_t *address)
+{
+	uint16_t value;
+
+	__asm__ __volatile__("ldrh %w0, [%1]" : "=r"(value) : "r"(address));
+	return value;
+}
+
+static inline uint32_t ioreg_read32(const volatile uint32_t *address)
+{
+	uint32_t value;
+
+	__asm__ __volatile__("ldr %w0, [%1]" : "=r"(value) : "r"(address));
+	return value;
+}
+
+static inline uint64_t ioreg_read64(const volatile uint64_t *address)
+{
+	uint64_t value;
+
+	__asm__ __volatile__("ldr %0, [%1]" : "=r"(value) : "r"(address));
+	return value;
+}
+
+static inline void ioreg_write8(const volatile uint8_t *address, uint8_t value)
+{
+	__asm__ __volatile__("strb %w0, [%1]" : : "rZ"(value), "r"(address));
+}
+
+static inline void ioreg_write16(const volatile uint16_t *address,
+				 uint16_t value)
+{
+	__asm__ __volatile__("strh %w0, [%1]" : : "rZ"(value), "r"(address));
+}
+
+static inline void ioreg_write32(const volatile uint32_t *address,
+				 uint32_t value)
+{
+	__asm__ __volatile__("str %w0, [%1]" : : "rZ"(value), "r"(address));
+}
+
+static inline void ioreg_write64(const volatile uint64_t *address,
+				 uint64_t value)
+{
+	__asm__ __volatile__("str %0, [%1]" : : "rZ"(value), "r"(address));
+}
 
 static inline unsigned long ukarch_read_sp(void)
 {
