@@ -34,6 +34,7 @@
 #include <vfscore/file.h>
 #include <vfscore/fs.h>
 #include <uk/plat/console.h>
+#include <uk/syscall.h>
 #include <uk/essentials.h>
 #include <termios.h>
 #include <vfscore/vnode.h>
@@ -161,6 +162,7 @@ stdio_getattr(struct vnode *vnode __unused, struct vattr *attr __unused)
 #define stdio_fallocate	((vnop_fallocate_t)vfscore_vop_nullop)
 #define stdio_readlink	((vnop_readlink_t)vfscore_vop_nullop)
 #define stdio_symlink	((vnop_symlink_t)vfscore_vop_nullop)
+#define stdio_poll	((vnop_poll_t)vfscore_vop_einval)
 
 static struct vnops stdio_vnops = {
 	stdio_open,		/* open */
@@ -182,10 +184,11 @@ static struct vnops stdio_vnops = {
 	stdio_inactive,		/* inactive */
 	stdio_truncate,		/* truncate */
 	stdio_link,		/* link */
-	(vnop_cache_t) NULL, /* arc */
+	(vnop_cache_t) NULL,	/* arc */
 	stdio_fallocate,	/* fallocate */
 	stdio_readlink,		/* read link */
 	stdio_symlink,		/* symbolic link */
+	stdio_poll,		/* poll */
 };
 
 static struct vnode stdio_vnode = {
@@ -209,17 +212,18 @@ static struct vfscore_file  stdio_file = {
 	 * operation. However it is not properly handled in the
 	 * current implementation. */
 	.f_count = 2,
+	.f_ep = UK_LIST_HEAD_INIT(stdio_file.f_ep)
 };
 
 void init_stdio(void)
 {
-	int fd;
+	int fd __maybe_unused;
 
 	fd = vfscore_alloc_fd();
 	UK_ASSERT(fd == 0);
 	vfscore_install_fd(0, &stdio_file);
-	if (dup2(0, 1) != 1)
+	if (uk_syscall_r_dup2(0, 1) != 1)
 		uk_pr_err("failed to dup to stdin\n");
-	if (dup2(0, 2) != 2)
+	if (uk_syscall_r_dup2(0, 2) != 2)
 		uk_pr_err("failed to dup to stderr\n");
 }

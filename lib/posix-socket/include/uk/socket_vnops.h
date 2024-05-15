@@ -1,8 +1,12 @@
 /* SPDX-License-Identifier: BSD-3-Clause */
 /*
- * Authors: Wei Chen <wei.chen@arm.com>
+ * Authors: Alexander Jung <alexander.jung@neclab.eu>
+ *          Marc Rittinghaus <marc.rittinghaus@kit.edu>
  *
- * Copyright (c) 2018, Arm Ltd. All rights reserved.
+ * Copyright (c) 2020, NEC Laboratories Europe GmbH, NEC Corporation.
+ *                     All rights reserved.
+ * Copyright (c) 2022, Karlsruhe Institute of Technology (KIT).
+ *                     All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,13 +34,30 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef __PLAT_KVM_MM_H__
-#define __PLAT_KVM_MM_H__
+#ifndef __UK_SOCKET_VNOPS__
+#define __UK_SOCKET_VNOPS__
 
-#if defined(__ARM_64__)
-#include "arm64/mm.h"
-#else
-#error "Add mm.h for current architecture."
-#endif
+#include <vfscore/file.h>
+#include <vfscore/vnode.h>
 
-#endif /* __PLAT_KVM_MM_H__ */
+struct posix_socket_driver;
+
+/**
+ * Return the socket file structure used by a file descriptor.
+ *
+ * @param sock_fd The vfscore file descriptor number
+ */
+struct posix_socket_file *
+posix_socket_file_get(int sock_fd);
+
+/**
+ * Allocate a file descriptor in vfscore for the given socket driver.
+ *
+ * @param d The driver used to create the socket
+ * @param type The socket type
+ * @param sock_data The socket implementation's private data
+ */
+int
+posix_socket_alloc_fd(struct posix_socket_driver *d, int type, void *sock_data);
+
+#endif /* __UK_SOCKET_VNOPS__ */

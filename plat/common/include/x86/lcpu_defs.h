@@ -1,8 +1,12 @@
 /* SPDX-License-Identifier: BSD-3-Clause */
 /*
- * Authors: Costin Lupu <costin.lupu@cs.pub.ro>
+ * Authors: Marc Rittinghaus <marc.rittinghaus@kit.edu>
+ *          Cristian Vijelie <cristianvijelie@gmail.com>
  *
- * Copyright (c) 2018, NEC Europe Ltd., NEC Corporation. All rights reserved.
+ * Copyright (c) 2022, Karlsruhe Institute of Technology (KIT)
+ *                     All rights reserved.
+ * Copyright (c) 2022, University POLITEHNICA of Bucharest.
+ *                     All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,12 +34,10 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef __KVM_IRQ_H_
-#define __KVM_IRQ_H_
+#ifndef __PLAT_CMN_X86_LCPU_DEFS_H__
+#define __PLAT_CMN_X86_LCPU_DEFS_H__
 
-#include <sys/types.h>
-#include <uk/plat/irq.h>
+/* We have a multi-phase startup sequence on x86 */
+#define LCPU_ARCH_MULTI_PHASE_STARTUP
 
-void _ukplat_irq_handle(unsigned long irq);
-
-#endif /* __KVM_IRQ_H_ */
+#endif /* __PLAT_CMN_X86_LCPU_DEFS_H__ */

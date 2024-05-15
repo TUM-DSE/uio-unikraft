@@ -54,6 +54,7 @@
 /*
  * Basic CPU control in CR0
  */
+#define X86_CR0_PE              (1 << 0)    /* Protection Enable */
 #define X86_CR0_MP              (1 << 1)    /* Monitor Coprocessor */
 #define X86_CR0_EM              (1 << 2)    /* Emulation */
 #define X86_CR0_TS              (1 << 3)    /* Task Switched */
@@ -77,6 +78,7 @@
 #define X86_EFER_LME            (1 << 8)    /* Long mode enable (R/W) */
 
 /* CPUID feature bits in ECX and EDX when EAX=1 */
+#define X86_CPUID1_ECX_x2APIC   (1 << 21)
 #define X86_CPUID1_ECX_XSAVE    (1 << 26)
 #define X86_CPUID1_ECX_OSXSAVE  (1 << 27)
 #define X86_CPUID1_ECX_AVX      (1 << 28)
