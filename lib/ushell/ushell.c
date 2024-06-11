@@ -14,10 +14,6 @@
 #include "uk/thread.h"
 #include "uk/sched.h"
 
-#ifdef CONFIG_LIBUKSIGNAL
-#include <uk/uk_signal.h>
-#endif
-
 #include <ushell/ushell.h>
 #include "ushell_api.h"
 
@@ -685,7 +681,7 @@ static void ushell_cons_thread(void *arg)
 	if (key & 0x08) {
 		pbkey |= PAGE_PROT_PKEY3;
 	}
-	rc = pkey_mprotect(ushell_thread->stack, STACK_SIZE, PROT_READ | PROT_WRITE, key);
+	rc = pkey_mprotect(ushell_thread->_mem.stack, STACK_SIZE, PROT_READ | PROT_WRITE, key);
 	if (rc < 0) {
 		uk_pr_err("Could not set pkey for thread stack %d\n", errno);
 		return;
@@ -769,7 +765,7 @@ static int ushell_init(void)
 	uk_pr_info("Attached ushell at %s\n", uk_cdev->name);
 
 	ushell_event = &uk_cdev->uk_cdev_evnt;
-	ushell_event->thr_s = uk_sched_get_default();
+	ushell_event->thr_s = uk_sched_current();
 	ushell_event->uk_cons_data.uk_cdev = uk_cdev;
 	uk_semaphore_init(&ushell_event->events, 0);
 	if (asprintf(&ushell_event->thr_name, "ushell_consdev") < 0) {
@@ -777,8 +773,8 @@ static int ushell_init(void)
 	}
 
 	ushell_event->thr =
-	    uk_sched_thread_create(ushell_event->thr_s, ushell_event->thr_name,
-				   NULL, ushell_cons_thread, ushell_event);
+	    uk_sched_thread_create(ushell_event->thr_s, ushell_cons_thread, 
+			ushell_event, ushell_event->thr_name);
 
 	return 0;
 }
