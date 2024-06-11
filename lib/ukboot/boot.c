@@ -92,7 +92,6 @@
 
 int main(int argc, char *argv[]) __weak;
 
-<<<<<<< HEAD
 #ifdef CONFIG_VIRTIO_MMIO
 #include <string.h>
 #include <stdlib.h>
@@ -104,7 +103,6 @@ struct virtio_mmio_config {
 #define VIRTIO_MMIO_MAX_NUM 8
 struct virtio_mmio_config virtio_mmio_config[VIRTIO_MMIO_MAX_NUM];
 #endif
-=======
 #if defined(CONFIG_LIBUKBOOT_HEAP_BASE) && defined(CONFIG_LIBUKVMEM)
 static struct uk_vas kernel_vas;
 #endif /* CONFIG_LIBUKBOOT_HEAP_BASE && CONFIG_LIBUKVMEM */
@@ -218,7 +216,6 @@ static struct uk_alloc *heap_init()
 
 	return a;
 }
->>>>>>> RELEASE-0.12.0
 
 /* defined in <uk/plat.h> */
 void ukplat_entry_argp(char *arg0, char *argb, __sz argb_len)
